@@ -3,7 +3,7 @@ services:
     name: bill-management
     env: node
     plan: free
-    buildCommand: npm install && cd client && npm install && npm run build && cd ../server && npm install
+    buildCommand: npm install && cd client && npm install --include=dev && npm run build && cd ../server && npm install
     startCommand: cd server && node server.js
     envVars:
       - key: NODE_ENV
