@@ -24,22 +24,37 @@ async function request(url, options = {}) {
     headers['X-Tenant-Id'] = String(tenantId);
   }
 
-  const response = await fetch(`${API_BASE}${url}`, {
-    headers,
-    ...options,
-  });
+  // Abort after 15 seconds to prevent hanging on Render cold-starts
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || 'Request failed');
+  try {
+    const response = await fetch(`${API_BASE}${url}`, {
+      headers,
+      signal: controller.signal,
+      ...options,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Network error' }));
+      throw new Error(error.error || 'Request failed');
+    }
+
+    // Handle blob responses (Excel download)
+    if (response.headers.get('content-type')?.includes('spreadsheet')) {
+      return response.blob();
+    }
+
+    return response.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Server is waking up — please try again in a moment');
+    }
+    throw err;
   }
-
-  // Handle blob responses (Excel download)
-  if (response.headers.get('content-type')?.includes('spreadsheet')) {
-    return response.blob();
-  }
-
-  return response.json();
 }
 
 export const api = {

@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [currentTenant, setCurrentTenant] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [serverWaking, setServerWaking] = useState(false);
 
   useEffect(() => {
     // Check localStorage for saved session
@@ -14,16 +15,30 @@ export function AuthProvider({ children }) {
         const tenant = JSON.parse(saved);
         setCurrentTenant(tenant);
         
-        // Fetch latest details in background
+        // Fetch latest details in background with timeout
+        setServerWaking(true);
         import('./api').then(({ api }) => {
-          api.getMe(tenant.id).then(freshTenant => {
-            setCurrentTenant(freshTenant);
-            localStorage.setItem('billmgr_tenant', JSON.stringify(freshTenant));
-          }).catch(() => {
-            // If fetching fails (e.g. tenant deleted), log them out
-            setCurrentTenant(null);
-            localStorage.removeItem('billmgr_tenant');
-          });
+          // Race against a timeout — Render free tier can take 30-60s to cold-start
+          const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 15000)
+          );
+          Promise.race([api.getMe(tenant.id), timeout])
+            .then(freshTenant => {
+              setCurrentTenant(freshTenant);
+              localStorage.setItem('billmgr_tenant', JSON.stringify(freshTenant));
+              setServerWaking(false);
+            })
+            .catch((err) => {
+              setServerWaking(false);
+              if (err.message === 'timeout' || err.message === 'Failed to fetch' || err.message === 'Network error') {
+                // Server is likely cold-starting — keep user logged in with cached data
+                console.log('Server unreachable, using cached session');
+              } else {
+                // Actual auth error (e.g. tenant deleted) — log them out
+                setCurrentTenant(null);
+                localStorage.removeItem('billmgr_tenant');
+              }
+            });
         });
       } catch (e) {
         localStorage.removeItem('billmgr_tenant');
@@ -48,7 +63,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ currentTenant, login, logout, updateTenantInfo, loading }}>
+    <AuthContext.Provider value={{ currentTenant, login, logout, updateTenantInfo, loading, serverWaking }}>
       {children}
     </AuthContext.Provider>
   );

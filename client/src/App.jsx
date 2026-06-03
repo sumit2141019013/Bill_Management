@@ -10,14 +10,19 @@ import Login from './pages/Login';
 import './index.css';
 
 function AppContent() {
-  const { currentTenant, logout, loading } = useAuth();
+  const { currentTenant, logout, loading, serverWaking } = useAuth();
 
   if (loading) {
     return (
       <div className="page flex-center" style={{ minHeight: '100vh' }}>
         <div className="empty-state">
-          <Zap size={48} className="empty-icon" />
-          <h3>Loading...</h3>
+          <div className="loading-spinner" style={{ margin: '0 auto 16px' }}>
+            <Zap size={32} style={{ color: 'var(--primary)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+          </div>
+          <h3>Loading BillManager...</h3>
+          <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '14px' }}>
+            Preparing your dashboard
+          </p>
         </div>
       </div>
     );
@@ -29,6 +34,12 @@ function AppContent() {
 
   return (
     <Router>
+      {serverWaking && (
+        <div className="server-waking-banner">
+          <div className="server-waking-spinner"></div>
+          <span>Connecting to server — data will refresh shortly</span>
+        </div>
+      )}
       <nav className="navbar">
         <NavLink to="/" className="navbar-brand">
           <div className="brand-icon">
