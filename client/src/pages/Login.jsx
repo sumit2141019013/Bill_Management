@@ -87,7 +87,7 @@ export default function Login() {
               <div className="login-field-icon"><User size={18} /></div>
               <input
                 type="text"
-                placeholder={isRegistering ? 'Choose a Username (e.g. John)' : 'Enter Your Name (or Phone)'}
+                placeholder={isRegistering ? 'Choose a Username (e.g. John)' : 'Enter Your Phone Number'}
                 value={name}
                 onChange={e => setName(e.target.value)}
                 autoComplete="username"
