@@ -42,7 +42,7 @@ export default function Billing() {
       if (!showNewMonthModal && !showEventModal && !showCloseModal) {
         loadData(false);
       }
-    }, 100);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [showNewMonthModal, showEventModal, showCloseModal]);

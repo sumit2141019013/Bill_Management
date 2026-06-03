@@ -15,7 +15,7 @@ export default function Dashboard() {
 
     const interval = setInterval(() => {
       loadData(false);
-    }, 100);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, []);

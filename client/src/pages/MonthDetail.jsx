@@ -16,7 +16,7 @@ export default function MonthDetail() {
 
     const interval = setInterval(() => {
       loadMonth(false);
-    }, 100);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [id]);
