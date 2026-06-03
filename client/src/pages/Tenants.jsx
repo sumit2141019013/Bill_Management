@@ -19,17 +19,26 @@ export default function Tenants() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
   useEffect(() => {
-    loadTenants();
-  }, []);
+    loadTenants(true);
 
-  async function loadTenants() {
+    const interval = setInterval(() => {
+      if (!showModal && !showPasswordModal) {
+        loadTenants(false);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [showModal, showPasswordModal]);
+
+  async function loadTenants(showSpinner = false) {
+    if (showSpinner) setLoading(true);
     try {
       const data = await api.getTenants();
       setTenants(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 

@@ -1,62 +1,68 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const { query } = require('../database');
 
 // GET all billing months
-router.get('/months', (req, res) => {
+router.get('/months', async (req, res) => {
   try {
-    const months = db.prepare(`
+    const result = await query(`
       SELECT bm.*, 
         (SELECT COUNT(*) FROM tenant_month_status tms WHERE tms.billing_month_id = bm.id AND tms.is_present = 1) as active_tenants
       FROM billing_months bm 
       ORDER BY bm.month DESC
-    `).all();
-    res.json(months);
+    `);
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET single billing month with details
-router.get('/months/:id', (req, res) => {
+router.get('/months/:id', async (req, res) => {
   try {
-    const month = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(req.params.id);
-    if (!month) return res.status(404).json({ error: 'Billing month not found' });
+    const monthResult = await query('SELECT * FROM billing_months WHERE id = $1', [req.params.id]);
+    if (monthResult.rows.length === 0) return res.status(404).json({ error: 'Billing month not found' });
+    const month = monthResult.rows[0];
 
-    const events = db.prepare(`
+    const eventsResult = await query(`
       SELECT e.*, t.name as tenant_name 
       FROM events e 
       LEFT JOIN tenants t ON e.tenant_id = t.id 
-      WHERE e.billing_month_id = ? 
+      WHERE e.billing_month_id = $1 
       ORDER BY e.meter_reading ASC, 
                CASE WHEN e.event_type = 'MONTH_START' THEN 0 
                     WHEN e.event_type = 'MONTH_END' THEN 2 
                     ELSE 1 END ASC, 
                e.id ASC
-    `).all(req.params.id);
+    `, [req.params.id]);
 
-    const tenantStatus = db.prepare(`
+    const tenantStatusResult = await query(`
       SELECT tms.*, t.name as tenant_name 
       FROM tenant_month_status tms 
       JOIN tenants t ON tms.tenant_id = t.id 
-      WHERE tms.billing_month_id = ?
-    `).all(req.params.id);
+      WHERE tms.billing_month_id = $1
+    `, [req.params.id]);
 
-    const billShares = db.prepare(`
+    const billSharesResult = await query(`
       SELECT bs.*, t.name as tenant_name 
       FROM bill_shares bs 
       JOIN tenants t ON bs.tenant_id = t.id 
-      WHERE bs.billing_month_id = ?
-    `).all(req.params.id);
+      WHERE bs.billing_month_id = $1
+    `, [req.params.id]);
 
-    res.json({ ...month, events, tenantStatus, billShares });
+    res.json({
+      ...month,
+      events: eventsResult.rows,
+      tenantStatus: tenantStatusResult.rows,
+      billShares: billSharesResult.rows,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST start new billing month
-router.post('/months', (req, res) => {
+router.post('/months', async (req, res) => {
   try {
     const { month, start_reading, rate_per_unit } = req.body;
     if (!month || start_reading === undefined) {
@@ -64,34 +70,42 @@ router.post('/months', (req, res) => {
     }
 
     // Check if month already exists
-    const existing = db.prepare('SELECT * FROM billing_months WHERE month = ?').get(month);
-    if (existing) {
+    const existing = await query('SELECT * FROM billing_months WHERE month = $1', [month]);
+    if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Billing month already exists' });
     }
 
     const rate = rate_per_unit || 10;
-    const result = db.prepare('INSERT INTO billing_months (month, start_reading, rate_per_unit) VALUES (?, ?, ?)').run(month, start_reading, rate);
-    const billingMonthId = result.lastInsertRowid;
+    const result = await query(
+      'INSERT INTO billing_months (month, start_reading, rate_per_unit) VALUES ($1, $2, $3) RETURNING id',
+      [month, start_reading, rate]
+    );
+    const billingMonthId = result.rows[0].id;
 
     // Create MONTH_START event
-    db.prepare('INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES (?, ?, ?, ?)').run(billingMonthId, 'MONTH_START', start_reading, month + '-01');
+    await query(
+      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES ($1, $2, $3, $4)',
+      [billingMonthId, 'MONTH_START', start_reading, month + '-01']
+    );
 
     // Add all active tenants (excluding admin) to this month
-    const activeTenants = db.prepare('SELECT * FROM tenants WHERE is_active = 1 AND is_admin = 0').all();
-    const insertStatus = db.prepare('INSERT INTO tenant_month_status (billing_month_id, tenant_id, is_present) VALUES (?, ?, 1)');
-    for (const tenant of activeTenants) {
-      insertStatus.run(billingMonthId, tenant.id);
+    const activeTenants = await query('SELECT * FROM tenants WHERE is_active = 1 AND is_admin = 0');
+    for (const tenant of activeTenants.rows) {
+      await query(
+        'INSERT INTO tenant_month_status (billing_month_id, tenant_id, is_present) VALUES ($1, $2, 1)',
+        [billingMonthId, tenant.id]
+      );
     }
 
-    const created = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(billingMonthId);
-    res.status(201).json(created);
+    const created = await query('SELECT * FROM billing_months WHERE id = $1', [billingMonthId]);
+    res.status(201).json(created.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST record event (tenant in/out)
-router.post('/events', (req, res) => {
+router.post('/events', async (req, res) => {
   try {
     const { billing_month_id, event_type, tenant_id, meter_reading, event_date, notes } = req.body;
     if (!billing_month_id || !event_type || !meter_reading || !event_date) {
@@ -101,89 +115,105 @@ router.post('/events', (req, res) => {
     // Ownership check: tenants can only record their own in/out events. Admin can record for anyone.
     const loggedInTenantId = req.headers['x-tenant-id'];
     if (loggedInTenantId && (event_type === 'TENANT_IN' || event_type === 'TENANT_OUT')) {
-      const user = db.prepare('SELECT is_admin FROM tenants WHERE id = ?').get(loggedInTenantId);
+      const userResult = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+      const user = userResult.rows[0];
       if (!user || (!user.is_admin && parseInt(loggedInTenantId) !== parseInt(tenant_id))) {
         return res.status(403).json({ error: 'You can only record your own in/out status' });
       }
     }
 
     // Verify billing month exists and is not closed
-    const month = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(billing_month_id);
-    if (!month) return res.status(404).json({ error: 'Billing month not found' });
-    if (month.is_closed) return res.status(400).json({ error: 'Billing month is already closed' });
+    const monthResult = await query('SELECT * FROM billing_months WHERE id = $1', [billing_month_id]);
+    if (monthResult.rows.length === 0) return res.status(404).json({ error: 'Billing month not found' });
+    if (monthResult.rows[0].is_closed) return res.status(400).json({ error: 'Billing month is already closed' });
 
     // Record the event
-    const result = db.prepare(
-      'INSERT INTO events (billing_month_id, event_type, tenant_id, meter_reading, event_date, notes) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(billing_month_id, event_type, tenant_id || null, meter_reading, event_date, notes || null);
+    const result = await query(
+      'INSERT INTO events (billing_month_id, event_type, tenant_id, meter_reading, event_date, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [billing_month_id, event_type, tenant_id || null, meter_reading, event_date, notes || null]
+    );
 
     // Update tenant month status
     if (tenant_id && (event_type === 'TENANT_OUT' || event_type === 'TENANT_IN')) {
       const isPresent = event_type === 'TENANT_IN' ? 1 : 0;
-      const existingStatus = db.prepare('SELECT * FROM tenant_month_status WHERE billing_month_id = ? AND tenant_id = ?').get(billing_month_id, tenant_id);
-      
-      if (existingStatus) {
-        db.prepare('UPDATE tenant_month_status SET is_present = ? WHERE billing_month_id = ? AND tenant_id = ?').run(isPresent, billing_month_id, tenant_id);
+      const existingStatus = await query(
+        'SELECT * FROM tenant_month_status WHERE billing_month_id = $1 AND tenant_id = $2',
+        [billing_month_id, tenant_id]
+      );
+
+      if (existingStatus.rows.length > 0) {
+        await query(
+          'UPDATE tenant_month_status SET is_present = $1 WHERE billing_month_id = $2 AND tenant_id = $3',
+          [isPresent, billing_month_id, tenant_id]
+        );
       } else {
-        db.prepare('INSERT INTO tenant_month_status (billing_month_id, tenant_id, is_present) VALUES (?, ?, ?)').run(billing_month_id, tenant_id, isPresent);
+        await query(
+          'INSERT INTO tenant_month_status (billing_month_id, tenant_id, is_present) VALUES ($1, $2, $3)',
+          [billing_month_id, tenant_id, isPresent]
+        );
       }
 
       // Also update tenant's global active status
-      db.prepare('UPDATE tenants SET is_active = ? WHERE id = ?').run(isPresent, tenant_id);
+      await query('UPDATE tenants SET is_active = $1 WHERE id = $2', [isPresent, tenant_id]);
     }
 
     // Recalculate bills for this month
-    calculateBills(billing_month_id);
+    await calculateBills(billing_month_id);
 
-    const event = db.prepare('SELECT * FROM events WHERE id = ?').get(result.lastInsertRowid);
-    res.status(201).json(event);
+    const event = await query('SELECT * FROM events WHERE id = $1', [result.rows[0].id]);
+    res.status(201).json(event.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // PUT close billing month
-router.put('/months/:id/close', (req, res) => {
+router.put('/months/:id/close', async (req, res) => {
   try {
     const { end_reading, end_date } = req.body;
     if (end_reading === undefined) {
       return res.status(400).json({ error: 'end_reading is required' });
     }
 
-    const month = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(req.params.id);
-    if (!month) return res.status(404).json({ error: 'Billing month not found' });
+    const monthResult = await query('SELECT * FROM billing_months WHERE id = $1', [req.params.id]);
+    if (monthResult.rows.length === 0) return res.status(404).json({ error: 'Billing month not found' });
+    const month = monthResult.rows[0];
     if (month.is_closed) return res.status(400).json({ error: 'Month is already closed' });
 
     // Record MONTH_END event
     const eventDate = end_date || month.month + '-28';
-    db.prepare('INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES (?, ?, ?, ?)').run(req.params.id, 'MONTH_END', end_reading, eventDate);
+    await query(
+      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES ($1, $2, $3, $4)',
+      [req.params.id, 'MONTH_END', end_reading, eventDate]
+    );
 
     // Update billing month
-    db.prepare('UPDATE billing_months SET end_reading = ?, is_closed = 1 WHERE id = ?').run(end_reading, req.params.id);
+    await query('UPDATE billing_months SET end_reading = $1, is_closed = 1 WHERE id = $2', [end_reading, req.params.id]);
 
     // Calculate final bills
-    calculateBills(req.params.id);
+    await calculateBills(req.params.id);
 
-    const updated = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(req.params.id);
-    res.json(updated);
+    const updated = await query('SELECT * FROM billing_months WHERE id = $1', [req.params.id]);
+    res.json(updated.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // DELETE billing month (Admin only)
-router.delete('/months/:id', (req, res) => {
+router.delete('/months/:id', async (req, res) => {
   try {
     const loggedInTenantId = req.headers['x-tenant-id'];
     if (!loggedInTenantId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const user = db.prepare('SELECT is_admin FROM tenants WHERE id = ?').get(loggedInTenantId);
+    const userResult = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+    const user = userResult.rows[0];
     if (!user || !user.is_admin) {
       return res.status(403).json({ error: 'Only Admin can delete billing months' });
     }
 
-    db.prepare('DELETE FROM billing_months WHERE id = ?').run(req.params.id);
+    await query('DELETE FROM billing_months WHERE id = $1', [req.params.id]);
     res.json({ message: 'Billing month deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -191,9 +221,9 @@ router.delete('/months/:id', (req, res) => {
 });
 
 // GET calculate/recalculate bills for a month
-router.get('/months/:id/calculate', (req, res) => {
+router.get('/months/:id/calculate', async (req, res) => {
   try {
-    const result = calculateBills(req.params.id);
+    const result = await calculateBills(req.params.id);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -201,10 +231,11 @@ router.get('/months/:id/calculate', (req, res) => {
 });
 
 // DELETE event
-router.delete('/events/:id', (req, res) => {
+router.delete('/events/:id', async (req, res) => {
   try {
-    const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
-    if (!event) return res.status(404).json({ error: 'Event not found' });
+    const eventResult = await query('SELECT * FROM events WHERE id = $1', [req.params.id]);
+    if (eventResult.rows.length === 0) return res.status(404).json({ error: 'Event not found' });
+    const event = eventResult.rows[0];
 
     // Don't allow deleting MONTH_START events
     if (event.event_type === 'MONTH_START') {
@@ -214,7 +245,8 @@ router.delete('/events/:id', (req, res) => {
     // Ownership check: tenants can only delete their own events. Admin can delete any event.
     const loggedInTenantId = req.headers['x-tenant-id'];
     if (loggedInTenantId && event.tenant_id) {
-      const user = db.prepare('SELECT is_admin FROM tenants WHERE id = ?').get(loggedInTenantId);
+      const userResult = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+      const user = userResult.rows[0];
       if (!user || (!user.is_admin && parseInt(loggedInTenantId) !== parseInt(event.tenant_id))) {
         return res.status(403).json({ error: 'You can only delete your own events' });
       }
@@ -223,19 +255,22 @@ router.delete('/events/:id', (req, res) => {
     // If it's a tenant event, revert the status
     if (event.tenant_id && (event.event_type === 'TENANT_OUT' || event.event_type === 'TENANT_IN')) {
       const revertPresent = event.event_type === 'TENANT_OUT' ? 1 : 0;
-      db.prepare('UPDATE tenant_month_status SET is_present = ? WHERE billing_month_id = ? AND tenant_id = ?').run(revertPresent, event.billing_month_id, event.tenant_id);
-      db.prepare('UPDATE tenants SET is_active = ? WHERE id = ?').run(revertPresent, event.tenant_id);
+      await query(
+        'UPDATE tenant_month_status SET is_present = $1 WHERE billing_month_id = $2 AND tenant_id = $3',
+        [revertPresent, event.billing_month_id, event.tenant_id]
+      );
+      await query('UPDATE tenants SET is_active = $1 WHERE id = $2', [revertPresent, event.tenant_id]);
     }
 
-    db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+    await query('DELETE FROM events WHERE id = $1', [req.params.id]);
 
     // If it was a MONTH_END event, reopen the month
     if (event.event_type === 'MONTH_END') {
-      db.prepare('UPDATE billing_months SET end_reading = NULL, is_closed = 0 WHERE id = ?').run(event.billing_month_id);
+      await query('UPDATE billing_months SET end_reading = NULL, is_closed = 0 WHERE id = $1', [event.billing_month_id]);
     }
 
     // Recalculate bills
-    calculateBills(event.billing_month_id);
+    await calculateBills(event.billing_month_id);
 
     res.json({ message: 'Event deleted' });
   } catch (err) {
@@ -248,36 +283,39 @@ router.delete('/events/:id', (req, res) => {
  * Each segment is between two consecutive events. The bill for each segment
  * is split equally among tenants present during that segment.
  */
-function calculateBills(billingMonthId) {
-  const month = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(billingMonthId);
-  if (!month) throw new Error('Billing month not found');
+async function calculateBills(billingMonthId) {
+  const monthResult = await query('SELECT * FROM billing_months WHERE id = $1', [billingMonthId]);
+  if (monthResult.rows.length === 0) throw new Error('Billing month not found');
+  const month = monthResult.rows[0];
 
   // Get all events sorted by date and id
-  const events = db.prepare(`
+  const eventsResult = await query(`
     SELECT e.*, t.name as tenant_name 
     FROM events e 
     LEFT JOIN tenants t ON e.tenant_id = t.id 
-    WHERE e.billing_month_id = ? 
+    WHERE e.billing_month_id = $1 
     ORDER BY e.meter_reading ASC, 
              CASE WHEN e.event_type = 'MONTH_START' THEN 0 
                   WHEN e.event_type = 'MONTH_END' THEN 2 
                   ELSE 1 END ASC, 
              e.id ASC
-  `).all(billingMonthId);
+  `, [billingMonthId]);
+  const events = eventsResult.rows;
 
   if (events.length === 0) return { billShares: [] };
 
   // Get all tenants for this month
-  const tenantStatuses = db.prepare(`
+  const tenantStatusResult = await query(`
     SELECT tms.*, t.name as tenant_name 
     FROM tenant_month_status tms 
     JOIN tenants t ON tms.tenant_id = t.id 
-    WHERE tms.billing_month_id = ?
-  `).all(billingMonthId);
+    WHERE tms.billing_month_id = $1
+  `, [billingMonthId]);
+  const tenantStatuses = tenantStatusResult.rows;
 
   // Track present tenants — determine initial presence based on first event
   const presentTenants = new Set();
-  
+
   for (const ts of tenantStatuses) {
     const firstEvent = events.find(e => e.tenant_id === ts.tenant_id);
     if (firstEvent) {
@@ -333,21 +371,22 @@ function calculateBills(billingMonthId) {
     presentTenants.add(lastEvent.tenant_id);
   }
 
-  // Save bill shares
-  db.prepare('DELETE FROM bill_shares WHERE billing_month_id = ?').run(billingMonthId);
+  // Save bill shares — delete old then insert new
+  await query('DELETE FROM bill_shares WHERE billing_month_id = $1', [billingMonthId]);
 
-  const insertShare = db.prepare('INSERT INTO bill_shares (billing_month_id, tenant_id, total_units, total_amount) VALUES (?, ?, ?, ?)');
   const billShares = [];
-
   for (const ts of tenantStatuses) {
     const units = Math.round((tenantUnits[ts.tenant_id] || 0) * 100) / 100;
     const amount = Math.round((tenantAmounts[ts.tenant_id] || 0) * 100) / 100;
-    insertShare.run(billingMonthId, ts.tenant_id, units, amount);
+    await query(
+      'INSERT INTO bill_shares (billing_month_id, tenant_id, total_units, total_amount) VALUES ($1, $2, $3, $4)',
+      [billingMonthId, ts.tenant_id, units, amount]
+    );
     billShares.push({
       tenant_id: ts.tenant_id,
       tenant_name: ts.tenant_name,
       total_units: units,
-      total_amount: amount
+      total_amount: amount,
     });
   }
 

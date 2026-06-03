@@ -12,17 +12,24 @@ export default function MonthDetail() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadMonth();
+    loadMonth(true);
+
+    const interval = setInterval(() => {
+      loadMonth(false);
+    }, 100);
+
+    return () => clearInterval(interval);
   }, [id]);
 
-  async function loadMonth() {
+  async function loadMonth(showSpinner = false) {
+    if (showSpinner) setLoading(true);
     try {
       const data = await api.getMonth(id);
       setMonth(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 

@@ -36,10 +36,19 @@ export default function Billing() {
   });
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadData(true);
 
-  async function loadData() {
+    const interval = setInterval(() => {
+      if (!showNewMonthModal && !showEventModal && !showCloseModal) {
+        loadData(false);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [showNewMonthModal, showEventModal, showCloseModal]);
+
+  async function loadData(showSpinner = false) {
+    if (showSpinner) setLoading(true);
     try {
       const [monthsData, tenantsData] = await Promise.all([
         api.getMonths(),
@@ -59,7 +68,7 @@ export default function Billing() {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 

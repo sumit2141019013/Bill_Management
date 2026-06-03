@@ -1,64 +1,69 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const { query } = require('../database');
 
 // GET all tenants
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const tenants = db.prepare('SELECT * FROM tenants ORDER BY name').all();
-    res.json(tenants);
+    const result = await query('SELECT * FROM tenants ORDER BY name');
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // GET single tenant
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
-    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
-    res.json(tenant);
+    const result = await query('SELECT * FROM tenants WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Tenant not found' });
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST new tenant
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const { name, joined_date, phone, password } = req.body;
     if (!name || !joined_date) {
       return res.status(400).json({ error: 'Name and joined_date are required' });
     }
     if (phone) {
-      const existing = db.prepare('SELECT id FROM tenants WHERE phone = ?').get(phone);
-      if (existing) {
+      const existing = await query('SELECT id FROM tenants WHERE phone = $1', [phone]);
+      if (existing.rows.length > 0) {
         return res.status(400).json({ error: 'This phone number is already used by another tenant' });
       }
     }
     const pwd = password || '1234';
-    const result = db.prepare('INSERT INTO tenants (name, joined_date, phone, password) VALUES (?, ?, ?, ?)').run(name, joined_date, phone || null, pwd);
-    const tenant = db.prepare('SELECT id, name, phone, is_active, joined_date, is_admin FROM tenants WHERE id = ?').get(result.lastInsertRowid);
-    res.status(201).json(tenant);
+    const result = await query(
+      'INSERT INTO tenants (name, joined_date, phone, password) VALUES ($1, $2, $3, $4) RETURNING id',
+      [name, joined_date, phone || null, pwd]
+    );
+    const tenant = await query('SELECT id, name, phone, is_active, joined_date, is_admin FROM tenants WHERE id = $1', [result.rows[0].id]);
+    res.status(201).json(tenant.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // PUT update tenant (only own profile via X-Tenant-Id header)
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const loggedInTenantId = req.headers['x-tenant-id'];
     if (loggedInTenantId) {
-      const user = db.prepare('SELECT is_admin FROM tenants WHERE id = ?').get(loggedInTenantId);
+      const userResult = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+      const user = userResult.rows[0];
       if (!user || (!user.is_admin && parseInt(loggedInTenantId) !== parseInt(req.params.id))) {
         return res.status(403).json({ error: 'You can only edit your own profile' });
       }
     }
 
     const { name, is_active, phone } = req.body;
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
-    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    const tenantResult = await query('SELECT * FROM tenants WHERE id = $1', [req.params.id]);
+    if (tenantResult.rows.length === 0) return res.status(404).json({ error: 'Tenant not found' });
+    const tenant = tenantResult.rows[0];
 
     const updatedName = name !== undefined ? name : tenant.name;
     const updatedActive = is_active !== undefined ? (is_active ? 1 : 0) : tenant.is_active;
@@ -66,41 +71,42 @@ router.put('/:id', (req, res) => {
 
     // Check phone uniqueness if changed
     if (phone && phone !== tenant.phone) {
-      const existing = db.prepare('SELECT id FROM tenants WHERE phone = ? AND id != ?').get(phone, req.params.id);
-      if (existing) {
+      const existing = await query('SELECT id FROM tenants WHERE phone = $1 AND id != $2', [phone, req.params.id]);
+      if (existing.rows.length > 0) {
         return res.status(400).json({ error: 'This phone number is already used by another tenant' });
       }
     }
 
-    db.prepare('UPDATE tenants SET name = ?, is_active = ?, phone = ? WHERE id = ?').run(updatedName, updatedActive, updatedPhone, req.params.id);
-    const updated = db.prepare('SELECT id, name, phone, is_active, joined_date, created_at, is_admin FROM tenants WHERE id = ?').get(req.params.id);
-    res.json(updated);
+    await query('UPDATE tenants SET name = $1, is_active = $2, phone = $3 WHERE id = $4', [updatedName, updatedActive, updatedPhone, req.params.id]);
+    const updated = await query('SELECT id, name, phone, is_active, joined_date, created_at, is_admin FROM tenants WHERE id = $1', [req.params.id]);
+    res.json(updated.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // DELETE tenant (Admin only)
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const loggedInTenantId = req.headers['x-tenant-id'];
     if (!loggedInTenantId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const user = db.prepare('SELECT is_admin FROM tenants WHERE id = ?').get(loggedInTenantId);
+    const userResult = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+    const user = userResult.rows[0];
     if (!user || !user.is_admin) {
       return res.status(403).json({ error: 'Only Admin can delete tenants' });
     }
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
-    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
-    
+    const tenantResult = await query('SELECT * FROM tenants WHERE id = $1', [req.params.id]);
+    if (tenantResult.rows.length === 0) return res.status(404).json({ error: 'Tenant not found' });
+
     // Manually cascade delete to avoid foreign key constraint errors
-    db.prepare('DELETE FROM tenant_month_status WHERE tenant_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM bill_shares WHERE tenant_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM events WHERE tenant_id = ?').run(req.params.id);
-    
-    db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
+    await query('DELETE FROM tenant_month_status WHERE tenant_id = $1', [req.params.id]);
+    await query('DELETE FROM bill_shares WHERE tenant_id = $1', [req.params.id]);
+    await query('DELETE FROM events WHERE tenant_id = $1', [req.params.id]);
+
+    await query('DELETE FROM tenants WHERE id = $1', [req.params.id]);
     res.json({ message: 'Tenant deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });

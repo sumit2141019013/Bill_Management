@@ -11,10 +11,17 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    loadData();
+    loadData(true);
+
+    const interval = setInterval(() => {
+      loadData(false);
+    }, 100);
+
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadData() {
+  async function loadData(showSpinner = false) {
+    if (showSpinner) setLoading(true);
     try {
       const [tenantsData, monthsData] = await Promise.all([
         api.getTenants(),
@@ -34,7 +41,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   }
 

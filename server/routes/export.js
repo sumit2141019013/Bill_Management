@@ -1,33 +1,34 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const { query } = require('../database');
 const XLSX = require('xlsx');
 
 // GET export billing month as Excel
-router.get('/excel/:monthId', (req, res) => {
+router.get('/excel/:monthId', async (req, res) => {
   try {
-    const month = db.prepare('SELECT * FROM billing_months WHERE id = ?').get(req.params.monthId);
-    if (!month) return res.status(404).json({ error: 'Billing month not found' });
+    const monthResult = await query('SELECT * FROM billing_months WHERE id = $1', [req.params.monthId]);
+    if (monthResult.rows.length === 0) return res.status(404).json({ error: 'Billing month not found' });
+    const month = monthResult.rows[0];
 
-    const billShares = db.prepare(`
+    const billSharesResult = await query(`
       SELECT bs.*, t.name as tenant_name 
       FROM bill_shares bs 
       JOIN tenants t ON bs.tenant_id = t.id 
-      WHERE bs.billing_month_id = ?
+      WHERE bs.billing_month_id = $1
       ORDER BY t.name
-    `).all(req.params.monthId);
+    `, [req.params.monthId]);
 
-    const events = db.prepare(`
+    const eventsResult = await query(`
       SELECT e.*, t.name as tenant_name 
       FROM events e 
       LEFT JOIN tenants t ON e.tenant_id = t.id 
-      WHERE e.billing_month_id = ? 
+      WHERE e.billing_month_id = $1 
       ORDER BY e.meter_reading ASC, 
                CASE WHEN e.event_type = 'MONTH_START' THEN 0 
                     WHEN e.event_type = 'MONTH_END' THEN 2 
                     ELSE 1 END ASC, 
                e.id ASC
-    `).all(req.params.monthId);
+    `, [req.params.monthId]);
 
     // Create workbook
     const wb = XLSX.utils.book_new();
@@ -47,7 +48,7 @@ router.get('/excel/:monthId', (req, res) => {
     ];
 
     let totalAmount = 0;
-    for (const share of billShares) {
+    for (const share of billSharesResult.rows) {
       summaryData.push([share.tenant_name, share.total_units, share.total_amount]);
       totalAmount += share.total_amount;
     }
@@ -65,7 +66,7 @@ router.get('/excel/:monthId', (req, res) => {
       ['Date', 'Event Type', 'Tenant', 'Meter Reading', 'Notes']
     ];
 
-    for (const event of events) {
+    for (const event of eventsResult.rows) {
       eventsData.push([
         event.event_date,
         event.event_type,

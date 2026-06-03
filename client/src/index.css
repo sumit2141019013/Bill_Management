@@ -826,11 +826,32 @@ tbody tr:last-child td {
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .navbar {
-    padding: 0 1rem;
+    padding: 0 0.75rem;
+    gap: 8px;
+  }
+
+  .navbar-brand h1 {
+    display: none;
+  }
+
+  .navbar-links {
+    gap: 2px;
+  }
+
+  .navbar-links a {
+    padding: 8px 10px;
   }
 
   .navbar-links a span {
     display: none;
+  }
+
+  .navbar-username {
+    display: none;
+  }
+
+  .navbar-user-info {
+    padding: 4px;
   }
 
   .page {
@@ -851,6 +872,18 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 480px) {
+  .navbar {
+    padding: 0 0.5rem;
+  }
+
+  .navbar-links a {
+    padding: 8px 6px;
+  }
+
+  .navbar-user {
+    gap: 6px;
+  }
+
   .bill-breakdown {
     grid-template-columns: 1fr;
   }
