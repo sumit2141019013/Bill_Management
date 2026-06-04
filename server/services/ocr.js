@@ -21,7 +21,7 @@ async function uploadImage(buffer, originalName, mimeType, req) {
   // If CLOUDINARY_URL is set, use Cloudinary
   if (process.env.CLOUDINARY_URL) {
     try {
-      return new Promise((resolve, reject) => {
+      const secureUrl = await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           { folder: 'bill_management_meters' },
           (error, result) => {
@@ -31,12 +31,20 @@ async function uploadImage(buffer, originalName, mimeType, req) {
         );
         uploadStream.end(buffer);
       });
+      return secureUrl;
     } catch (err) {
-      console.error('❌ Cloudinary upload failed, falling back to local:', err.message);
+      console.error('❌ Cloudinary upload failed:', err.message);
+      throw new Error(`Cloudinary upload failed: ${err.message}`);
     }
   }
 
-  // Fallback: Local storage
+  // In production (Render), local storage won't persist and URLs will break. 
+  // Force Cloudinary.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('CLOUDINARY_URL is required in production environments.');
+  }
+
+  // Fallback: Local storage (for local development only)
   const filename = `${Date.now()}-${originalName}`;
   const filePath = path.join(uploadsDir, filename);
   await fs.promises.writeFile(filePath, buffer);

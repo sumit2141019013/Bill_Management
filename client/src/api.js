@@ -27,9 +27,9 @@ async function request(url, options = {}) {
     headers['X-Tenant-Id'] = String(tenantId);
   }
 
-  // Abort after 15 seconds to prevent hanging on Render cold-starts
+  // Abort after 60 seconds to prevent hanging on Render cold-starts + image uploads + AI extraction
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
     const response = await fetch(`${API_BASE}${url}`, {
