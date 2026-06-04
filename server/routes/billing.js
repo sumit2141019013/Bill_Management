@@ -95,25 +95,21 @@ router.post('/months', upload.single('meter_image'), async (req, res) => {
 
       // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
       const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-      if (ocrResult) {
-        if (ocrResult.bypass) {
-          console.log('Gemini OCR bypassed:', ocrResult.reason);
-        } else if (ocrResult.error) {
-          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
-        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+      if (!ocrResult || ocrResult.error) {
+        return res.status(400).json({ error: `AI verification failed: ${ocrResult?.error || 'Unknown OCR error'}` });
+      } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+        return res.status(400).json({
+          error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+        });
+      } else {
+        ai_meter_reading = ocrResult.reading;
+        const verification = verifyReading(start_reading, ocrResult.reading);
+        if (!verification.verified) {
           return res.status(400).json({
-            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+            error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${start_reading}. Please re-check the meter and try again.`,
+            ai_reading: ocrResult.reading,
+            user_reading: start_reading
           });
-        } else {
-          ai_meter_reading = ocrResult.reading;
-          const verification = verifyReading(start_reading, ocrResult.reading);
-          if (!verification.verified) {
-            return res.status(400).json({
-              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${start_reading}. Please re-check the meter and try again.`,
-              ai_reading: ocrResult.reading,
-              user_reading: start_reading
-            });
-          }
         }
       }
     } catch (err) {
@@ -209,25 +205,21 @@ router.post('/events', upload.single('meter_image'), async (req, res) => {
 
       // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
       const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-      if (ocrResult) {
-        if (ocrResult.bypass) {
-          console.log('Gemini OCR bypassed:', ocrResult.reason);
-        } else if (ocrResult.error) {
-          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
-        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+      if (!ocrResult || ocrResult.error) {
+        return res.status(400).json({ error: `AI verification failed: ${ocrResult?.error || 'Unknown OCR error'}` });
+      } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+        return res.status(400).json({
+          error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+        });
+      } else {
+        ai_meter_reading = ocrResult.reading;
+        const verification = verifyReading(meter_reading, ocrResult.reading);
+        if (!verification.verified) {
           return res.status(400).json({
-            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+            error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${meter_reading}. Please re-check the meter and try again.`,
+            ai_reading: ocrResult.reading,
+            user_reading: meter_reading
           });
-        } else {
-          ai_meter_reading = ocrResult.reading;
-          const verification = verifyReading(meter_reading, ocrResult.reading);
-          if (!verification.verified) {
-            return res.status(400).json({
-              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${meter_reading}. Please re-check the meter and try again.`,
-              ai_reading: ocrResult.reading,
-              user_reading: meter_reading
-            });
-          }
         }
       }
     } catch (err) {
@@ -303,25 +295,21 @@ router.put('/months/:id/close', upload.single('meter_image'), async (req, res) =
 
       // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
       const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-      if (ocrResult) {
-        if (ocrResult.bypass) {
-          console.log('Gemini OCR bypassed:', ocrResult.reason);
-        } else if (ocrResult.error) {
-          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
-        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+      if (!ocrResult || ocrResult.error) {
+        return res.status(400).json({ error: `AI verification failed: ${ocrResult?.error || 'Unknown OCR error'}` });
+      } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+        return res.status(400).json({
+          error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+        });
+      } else {
+        ai_meter_reading = ocrResult.reading;
+        const verification = verifyReading(end_reading, ocrResult.reading);
+        if (!verification.verified) {
           return res.status(400).json({
-            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+            error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${end_reading}. Please re-check the meter and try again.`,
+            ai_reading: ocrResult.reading,
+            user_reading: end_reading
           });
-        } else {
-          ai_meter_reading = ocrResult.reading;
-          const verification = verifyReading(end_reading, ocrResult.reading);
-          if (!verification.verified) {
-            return res.status(400).json({
-              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${end_reading}. Please re-check the meter and try again.`,
-              ai_reading: ocrResult.reading,
-              user_reading: end_reading
-            });
-          }
         }
       }
     } catch (err) {

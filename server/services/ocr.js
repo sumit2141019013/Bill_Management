@@ -55,13 +55,13 @@ async function uploadImage(buffer, originalName, mimeType, req) {
  */
 async function extractMeterReading(buffer, mimeType) {
   if (!process.env.GEMINI_API_KEY) {
-    console.log('⚠️ GEMINI_API_KEY not set. Bypassing AI OCR.');
-    return { reading: null, bypass: true, reason: 'GEMINI_API_KEY missing' };
+    console.error('❌ GEMINI_API_KEY not set. AI OCR verification cannot proceed.');
+    return { reading: null, error: 'AI verification service is not configured. Please contact the administrator to set up the GEMINI_API_KEY.' };
   }
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const prompt = `
       You are an expert OCR utility for parsing utility meter screens (such as electric meters or water meters).
