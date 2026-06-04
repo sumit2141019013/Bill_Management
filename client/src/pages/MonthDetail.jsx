@@ -223,9 +223,32 @@ export default function MonthDetail() {
                         {event.event_type === 'TENANT_IN' && `✅ ${event.tenant_name} came back`}
                       </div>
                       <div className="timeline-reading">Meter: {event.meter_reading}</div>
+                      {event.ai_meter_reading && (
+                        <div className="timeline-reading" style={{ fontSize: '0.85rem', color: 'var(--primary-color)' }}>
+                          AI Extracted: {event.ai_meter_reading}
+                        </div>
+                      )}
                       {event.notes && (
                         <div className="timeline-reading" style={{ color: 'var(--text-secondary)' }}>
                           Note: {event.notes}
+                        </div>
+                      )}
+                      {event.meter_image_url && (
+                        <div className="timeline-image mt-1">
+                          <a href={event.meter_image_url} target="_blank" rel="noopener noreferrer">
+                            <img 
+                              src={event.meter_image_url} 
+                              alt="Meter Display" 
+                              style={{ 
+                                maxWidth: '120px', 
+                                maxHeight: '120px', 
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--border-color)',
+                                cursor: 'pointer',
+                                display: 'block'
+                              }} 
+                            />
+                          </a>
                         </div>
                       )}
                     </div>

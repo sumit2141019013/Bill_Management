@@ -15,9 +15,12 @@ function getTenantId() {
 async function request(url, options = {}) {
   const tenantId = getTenantId();
   const headers = {
-    'Content-Type': 'application/json',
     ...options.headers,
   };
+
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   // Add tenant ID header for ownership validation
   if (tenantId) {
@@ -81,7 +84,10 @@ export const api = {
   deleteMonth: (id) => request(`/billing/months/${id}`, { method: 'DELETE' }),
 
   // Events
-  createEvent: (data) => request('/billing/events', { method: 'POST', body: JSON.stringify(data) }),
+  createEvent: (data) => request('/billing/events', { 
+    method: 'POST', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
+  }),
   deleteEvent: (id) => request(`/billing/events/${id}`, { method: 'DELETE' }),
 
   // Export

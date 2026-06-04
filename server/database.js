@@ -52,6 +52,8 @@ if (process.env.DATABASE_URL) {
           meter_reading DOUBLE PRECISION NOT NULL,
           event_date TEXT NOT NULL,
           notes TEXT,
+          meter_image_url TEXT,
+          ai_meter_reading DOUBLE PRECISION,
           created_at TIMESTAMPTZ DEFAULT NOW()
         );
 
@@ -104,6 +106,12 @@ if (process.env.DATABASE_URL) {
         );
         console.log('👑 Seeded default Admin user (Name: Admin, Phone: admin, Password: admin2026)');
       }
+
+      // Migration: Add meter_image_url and ai_meter_reading to events if they don't exist
+      await client.query(`
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS meter_image_url TEXT;
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS ai_meter_reading DOUBLE PRECISION;
+      `);
 
       console.log('✅ PostgreSQL Database initialized successfully');
     } catch (err) {
@@ -178,6 +186,8 @@ if (process.env.DATABASE_URL) {
         meter_reading REAL NOT NULL,
         event_date TEXT NOT NULL,
         notes TEXT,
+        meter_image_url TEXT,
+        ai_meter_reading REAL,
         created_at TEXT DEFAULT (datetime('now'))
       );
 
@@ -228,6 +238,14 @@ if (process.env.DATABASE_URL) {
       );
       console.log('👑 Seeded default Admin user (Name: Admin, Phone: admin, Password: admin2026)');
     }
+
+    try {
+      await query('ALTER TABLE events ADD COLUMN meter_image_url TEXT');
+    } catch (err) {}
+
+    try {
+      await query('ALTER TABLE events ADD COLUMN ai_meter_reading REAL');
+    } catch (err) {}
 
     console.log('✅ SQLite Database initialized successfully');
   };

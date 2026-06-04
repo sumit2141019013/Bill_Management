@@ -15,6 +15,8 @@ export default function Billing() {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [eventType, setEventType] = useState('TENANT_OUT');
   const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [submittingEvent, setSubmittingEvent] = useState(false);
   const navigate = useNavigate();
 
   const [newMonthForm, setNewMonthForm] = useState({
@@ -104,19 +106,28 @@ export default function Billing() {
     }
 
     try {
-      await api.createEvent({
-        billing_month_id: currentMonth.id,
-        event_type: eventType,
-        tenant_id: parseInt(eventForm.tenant_id),
-        meter_reading: parseFloat(eventForm.meter_reading),
-        event_date: eventForm.event_date,
-        notes: eventForm.notes
-      });
+      setSubmittingEvent(true);
+      const formData = new FormData();
+      formData.append('billing_month_id', currentMonth.id);
+      formData.append('event_type', eventType);
+      formData.append('tenant_id', eventForm.tenant_id);
+      formData.append('meter_reading', eventForm.meter_reading);
+      formData.append('event_date', eventForm.event_date);
+      formData.append('notes', eventForm.notes);
+      if (selectedFile) {
+        formData.append('meter_image', selectedFile);
+      }
+
+      await api.createEvent(formData);
+
       setShowEventModal(false);
       setEventForm({ tenant_id: '', meter_reading: '', event_date: new Date().toISOString().split('T')[0], notes: '' });
+      setSelectedFile(null);
       loadData();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmittingEvent(false);
     }
   }
 
@@ -159,6 +170,7 @@ export default function Billing() {
       event_date: new Date().toISOString().split('T')[0],
       notes: ''
     });
+    setSelectedFile(null);
     setError('');
     setShowEventModal(true);
   }
@@ -365,9 +377,32 @@ export default function Billing() {
                       {event.event_type === 'TENANT_IN' && `✅ ${event.tenant_name} came back`}
                     </div>
                     <div className="timeline-reading">Meter: {event.meter_reading}</div>
+                    {event.ai_meter_reading && (
+                      <div className="timeline-reading" style={{ fontSize: '0.85rem', color: 'var(--primary-color)' }}>
+                        AI Extracted: {event.ai_meter_reading}
+                      </div>
+                    )}
                     {event.notes && (
                       <div className="timeline-reading" style={{ color: 'var(--text-secondary)' }}>
                         Note: {event.notes}
+                      </div>
+                    )}
+                    {event.meter_image_url && (
+                      <div className="timeline-image mt-1">
+                        <a href={event.meter_image_url} target="_blank" rel="noopener noreferrer">
+                          <img 
+                            src={event.meter_image_url} 
+                            alt="Meter Display" 
+                            style={{ 
+                              maxWidth: '120px', 
+                              maxHeight: '120px', 
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--border-color)',
+                              cursor: 'pointer',
+                              display: 'block'
+                            }} 
+                          />
+                        </a>
                       </div>
                     )}
                   </div>
@@ -495,11 +530,26 @@ export default function Billing() {
                   onChange={e => setEventForm({ ...eventForm, notes: e.target.value })}
                 />
               </div>
+              <div className="form-group">
+                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="form-control"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setSelectedFile(e.target.files[0]);
+                    }
+                  }}
+                  disabled={submittingEvent}
+                />
+              </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowEventModal(false)}>Cancel</button>
-                <button type="submit" className={`btn ${eventType === 'TENANT_OUT' ? 'btn-danger' : 'btn-success'}`}>
-                  {eventType === 'TENANT_OUT' ? 'Record Going Out' : 'Record Coming In'}
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEventModal(false)} disabled={submittingEvent}>Cancel</button>
+                <button type="submit" className={`btn ${eventType === 'TENANT_OUT' ? 'btn-danger' : 'btn-success'}`} disabled={submittingEvent}>
+                  {submittingEvent ? 'Verifying & Saving...' : (eventType === 'TENANT_OUT' ? 'Record Going Out' : 'Record Coming In')}
                 </button>
               </div>
             </form>

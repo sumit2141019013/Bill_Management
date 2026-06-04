@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const { query } = require('../database');
+const { uploadImage, extractMeterReading, verifyReading } = require('../services/ocr');
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 // GET all billing months
 router.get('/months', async (req, res) => {
@@ -105,10 +109,16 @@ router.post('/months', async (req, res) => {
 });
 
 // POST record event (tenant in/out)
-router.post('/events', async (req, res) => {
+router.post('/events', upload.single('meter_image'), async (req, res) => {
   try {
-    const { billing_month_id, event_type, tenant_id, meter_reading, event_date, notes } = req.body;
-    if (!billing_month_id || !event_type || !meter_reading || !event_date) {
+    let { billing_month_id, event_type, tenant_id, meter_reading, event_date, notes } = req.body;
+    
+    // Parse numeric fields because multer form-data returns them as strings
+    if (billing_month_id) billing_month_id = parseInt(billing_month_id, 10);
+    if (tenant_id) tenant_id = parseInt(tenant_id, 10) || null;
+    if (meter_reading) meter_reading = parseFloat(meter_reading);
+
+    if (!billing_month_id || !event_type || meter_reading === undefined || !event_date) {
       return res.status(400).json({ error: 'billing_month_id, event_type, meter_reading, and event_date are required' });
     }
 
@@ -127,10 +137,54 @@ router.post('/events', async (req, res) => {
     if (monthResult.rows.length === 0) return res.status(404).json({ error: 'Billing month not found' });
     if (monthResult.rows[0].is_closed) return res.status(400).json({ error: 'Billing month is already closed' });
 
+    // Duplicate event guard: prevent recording the same in/out status twice
+    if (tenant_id && (event_type === 'TENANT_OUT' || event_type === 'TENANT_IN')) {
+      const statusResult = await query(
+        'SELECT is_present FROM tenant_month_status WHERE billing_month_id = $1 AND tenant_id = $2',
+        [billing_month_id, tenant_id]
+      );
+      if (statusResult.rows.length > 0) {
+        const currentlyPresent = statusResult.rows[0].is_present;
+        if (event_type === 'TENANT_OUT' && !currentlyPresent) {
+          return res.status(400).json({ error: 'This tenant is already marked as OUT for this month' });
+        }
+        if (event_type === 'TENANT_IN' && currentlyPresent) {
+          return res.status(400).json({ error: 'This tenant is already marked as IN for this month' });
+        }
+      }
+    }
+
+    let meter_image_url = null;
+    let ai_meter_reading = null;
+
+    if (req.file) {
+      try {
+        // 1. Upload the image to Cloudinary (or local fallback)
+        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+
+        // 2. Extract reading via Gemini and BLOCK if mismatch
+        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+          ai_meter_reading = ocrResult.reading;
+          const verification = verifyReading(meter_reading, ocrResult.reading);
+          if (!verification.verified) {
+            return res.status(400).json({
+              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${meter_reading}. Please re-check the meter and try again.`,
+              ai_reading: ocrResult.reading,
+              user_reading: meter_reading
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error processing image/OCR:', err.message);
+        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
+      }
+    }
+
     // Record the event
     const result = await query(
-      'INSERT INTO events (billing_month_id, event_type, tenant_id, meter_reading, event_date, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-      [billing_month_id, event_type, tenant_id || null, meter_reading, event_date, notes || null]
+      'INSERT INTO events (billing_month_id, event_type, tenant_id, meter_reading, event_date, notes, meter_image_url, ai_meter_reading) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+      [billing_month_id, event_type, tenant_id || null, meter_reading, event_date, notes || null, meter_image_url, ai_meter_reading]
     );
 
     // Update tenant month status
