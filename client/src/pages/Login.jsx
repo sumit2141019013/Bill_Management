@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Zap, User, Lock, Eye, EyeOff, UserPlus, LogIn, Phone } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../ToastContext';
 
 export default function Login() {
   const { login } = useAuth();
+  const { showToast } = useToast();
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -20,6 +22,17 @@ export default function Login() {
       setError('Please enter a name');
       return;
     }
+    if (isRegistering) {
+      if (!phone.trim()) {
+        setError('Please enter a phone number');
+        return;
+      }
+      const cleanPhone = phone.trim().replace(/\D/g, '');
+      if (cleanPhone.length !== 10) {
+        setError('Phone number must be exactly 10 digits');
+        return;
+      }
+    }
     if (!password.trim()) {
       setError('Please enter a password');
       return;
@@ -33,13 +46,16 @@ export default function Login() {
       if (isRegistering) {
         // Register tenant (admin flag defaults to false)
         const data = await api.register(name.trim(), phone.trim(), password);
+        showToast('Account created successfully!', 'success');
         login(data.tenant);
       } else {
         const data = await api.login(name.trim(), password);
+        showToast(`Welcome back, ${data.tenant.name}!`, 'success');
         login(data.tenant);
       }
     } catch (err) {
       setError(err.message);
+      showToast(err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -87,7 +103,7 @@ export default function Login() {
               <div className="login-field-icon"><User size={18} /></div>
               <input
                 type="text"
-                placeholder={isRegistering ? 'Choose a Username (e.g. John)' : 'Enter Your Phone Number'}
+                placeholder={isRegistering ? 'Choose a Username (e.g. John)' : 'Enter Your Username or Phone Number'}
                 value={name}
                 onChange={e => setName(e.target.value)}
                 autoComplete="username"
@@ -95,16 +111,19 @@ export default function Login() {
               />
             </div>
 
-            {/* Phone Input – only during registration */}
+            {/* Phone Input – required during registration */}
             {isRegistering && (
               <div className="login-field">
                 <div className="login-field-icon"><Phone size={18} /></div>
                 <input
                   type="tel"
-                  placeholder="Enter Phone Number (Optional)"
+                  placeholder="Enter Phone Number (10 digits)"
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
                   autoComplete="tel"
+                  required
+                  pattern="[0-9]{10}"
+                  title="Phone number must be exactly 10 digits"
                 />
               </div>
             )}
@@ -135,7 +154,7 @@ export default function Login() {
             <button
               type="submit"
               className="login-btn"
-              disabled={loading || !name || !password}
+              disabled={loading || !name || !password || (isRegistering && !phone)}
             >
               {loading ? (
                 <span className="login-btn-loading">{isRegistering ? 'Creating Account...' : 'Signing in...'}</span>

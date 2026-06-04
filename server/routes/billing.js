@@ -66,9 +66,12 @@ router.get('/months/:id', async (req, res) => {
 });
 
 // POST start new billing month
-router.post('/months', async (req, res) => {
+router.post('/months', upload.single('meter_image'), async (req, res) => {
   try {
-    const { month, start_reading, rate_per_unit } = req.body;
+    let { month, start_reading, rate_per_unit } = req.body;
+    if (start_reading !== undefined) start_reading = parseFloat(start_reading);
+    if (rate_per_unit !== undefined) rate_per_unit = parseFloat(rate_per_unit);
+
     if (!month || start_reading === undefined) {
       return res.status(400).json({ error: 'Month and start_reading are required' });
     }
@@ -77,6 +80,33 @@ router.post('/months', async (req, res) => {
     const existing = await query('SELECT * FROM billing_months WHERE month = $1', [month]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Billing month already exists' });
+    }
+
+    let meter_image_url = null;
+    let ai_meter_reading = null;
+
+    if (req.file) {
+      try {
+        // 1. Upload the image to Cloudinary (or local fallback)
+        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+
+        // 2. Extract reading via Gemini and BLOCK if mismatch
+        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+          ai_meter_reading = ocrResult.reading;
+          const verification = verifyReading(start_reading, ocrResult.reading);
+          if (!verification.verified) {
+            return res.status(400).json({
+              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${start_reading}. Please re-check the meter and try again.`,
+              ai_reading: ocrResult.reading,
+              user_reading: start_reading
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error processing image/OCR:', err.message);
+        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
+      }
     }
 
     const rate = rate_per_unit || 10;
@@ -88,8 +118,8 @@ router.post('/months', async (req, res) => {
 
     // Create MONTH_START event
     await query(
-      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES ($1, $2, $3, $4)',
-      [billingMonthId, 'MONTH_START', start_reading, month + '-01']
+      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date, meter_image_url, ai_meter_reading) VALUES ($1, $2, $3, $4, $5, $6)',
+      [billingMonthId, 'MONTH_START', start_reading, month + '-01', meter_image_url, ai_meter_reading]
     );
 
     // Add all active tenants (excluding admin) to this month
@@ -222,9 +252,11 @@ router.post('/events', upload.single('meter_image'), async (req, res) => {
 });
 
 // PUT close billing month
-router.put('/months/:id/close', async (req, res) => {
+router.put('/months/:id/close', upload.single('meter_image'), async (req, res) => {
   try {
-    const { end_reading, end_date } = req.body;
+    let { end_reading, end_date } = req.body;
+    if (end_reading !== undefined) end_reading = parseFloat(end_reading);
+
     if (end_reading === undefined) {
       return res.status(400).json({ error: 'end_reading is required' });
     }
@@ -234,11 +266,38 @@ router.put('/months/:id/close', async (req, res) => {
     const month = monthResult.rows[0];
     if (month.is_closed) return res.status(400).json({ error: 'Month is already closed' });
 
+    let meter_image_url = null;
+    let ai_meter_reading = null;
+
+    if (req.file) {
+      try {
+        // 1. Upload the image to Cloudinary (or local fallback)
+        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+
+        // 2. Extract reading via Gemini and BLOCK if mismatch
+        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+          ai_meter_reading = ocrResult.reading;
+          const verification = verifyReading(end_reading, ocrResult.reading);
+          if (!verification.verified) {
+            return res.status(400).json({
+              error: `Meter reading mismatch! AI extracted ${ocrResult.reading} from the photo, but you entered ${end_reading}. Please re-check the meter and try again.`,
+              ai_reading: ocrResult.reading,
+              user_reading: end_reading
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error processing image/OCR:', err.message);
+        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
+      }
+    }
+
     // Record MONTH_END event
     const eventDate = end_date || month.month + '-28';
     await query(
-      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date) VALUES ($1, $2, $3, $4)',
-      [req.params.id, 'MONTH_END', end_reading, eventDate]
+      'INSERT INTO events (billing_month_id, event_type, meter_reading, event_date, meter_image_url, ai_meter_reading) VALUES ($1, $2, $3, $4, $5, $6)',
+      [req.params.id, 'MONTH_END', end_reading, eventDate, meter_image_url, ai_meter_reading]
     );
 
     // Update billing month

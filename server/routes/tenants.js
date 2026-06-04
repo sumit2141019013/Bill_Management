@@ -2,11 +2,31 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../database');
 
+// Mask a phone number for privacy (e.g. 9876543210 -> 98****3210)
+function maskPhone(phone) {
+  if (!phone || phone.length < 6) return phone;
+  const len = phone.length;
+  return phone.slice(0, 2) + '*'.repeat(len - 4) + phone.slice(-4);
+}
+
 // GET all tenants
 router.get('/', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM tenants ORDER BY name');
-    res.json(result.rows);
+    const loggedInTenantId = req.headers['x-tenant-id'];
+    let isAdmin = false;
+    if (loggedInTenantId) {
+      const userRes = await query('SELECT is_admin FROM tenants WHERE id = $1', [loggedInTenantId]);
+      if (userRes.rows[0]) isAdmin = !!userRes.rows[0].is_admin;
+    }
+    const result = await query('SELECT id, name, phone, is_active, joined_date, created_at, is_admin FROM tenants ORDER BY name');
+    const rows = result.rows.map(t => {
+      // Mask phone for non-self, non-admin
+      if (!isAdmin && String(t.id) !== String(loggedInTenantId)) {
+        return { ...t, phone: maskPhone(t.phone) };
+      }
+      return t;
+    });
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -30,16 +50,23 @@ router.post('/', async (req, res) => {
     if (!name || !joined_date) {
       return res.status(400).json({ error: 'Name and joined_date are required' });
     }
-    if (phone) {
-      const existing = await query('SELECT id FROM tenants WHERE phone = $1', [phone]);
-      if (existing.rows.length > 0) {
-        return res.status(400).json({ error: 'This phone number is already used by another tenant' });
-      }
+    if (!phone) {
+      return res.status(400).json({ error: 'Phone number is required' });
     }
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      return res.status(400).json({ error: 'Phone number must be exactly 10 digits' });
+    }
+
+    const existing = await query('SELECT id FROM tenants WHERE phone = $1', [cleanPhone]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'This phone number is already used by another tenant' });
+    }
+
     const pwd = password || '1234';
     const result = await query(
       'INSERT INTO tenants (name, joined_date, phone, password) VALUES ($1, $2, $3, $4) RETURNING id',
-      [name, joined_date, phone || null, pwd]
+      [name, joined_date, cleanPhone, pwd]
     );
     const tenant = await query('SELECT id, name, phone, is_active, joined_date, is_admin FROM tenants WHERE id = $1', [result.rows[0].id]);
     res.status(201).json(tenant.rows[0]);
@@ -67,14 +94,23 @@ router.put('/:id', async (req, res) => {
 
     const updatedName = name !== undefined ? name : tenant.name;
     const updatedActive = is_active !== undefined ? (is_active ? 1 : 0) : tenant.is_active;
-    const updatedPhone = phone !== undefined ? phone : tenant.phone;
-
-    // Check phone uniqueness if changed
-    if (phone && phone !== tenant.phone) {
-      const existing = await query('SELECT id FROM tenants WHERE phone = $1 AND id != $2', [phone, req.params.id]);
-      if (existing.rows.length > 0) {
-        return res.status(400).json({ error: 'This phone number is already used by another tenant' });
+    
+    let updatedPhone = tenant.phone;
+    if (phone !== undefined) {
+      if (!phone) {
+        return res.status(400).json({ error: 'Phone number is required' });
       }
+      const cleanPhone = phone.trim().replace(/\D/g, '');
+      if (cleanPhone.length !== 10) {
+        return res.status(400).json({ error: 'Phone number must be exactly 10 digits' });
+      }
+      if (cleanPhone !== tenant.phone) {
+        const existing = await query('SELECT id FROM tenants WHERE phone = $1 AND id != $2', [cleanPhone, req.params.id]);
+        if (existing.rows.length > 0) {
+          return res.status(400).json({ error: 'This phone number is already used by another tenant' });
+        }
+      }
+      updatedPhone = cleanPhone;
     }
 
     await query('UPDATE tenants SET name = $1, is_active = $2, phone = $3 WHERE id = $4', [updatedName, updatedActive, updatedPhone, req.params.id]);

@@ -3,11 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, CalendarDays, Zap, IndianRupee, Users, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../ToastContext';
+import { useConfirm } from '../ConfirmContext';
 
 export default function MonthDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentTenant } = useAuth();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
   const [month, setMonth] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -35,29 +39,47 @@ export default function MonthDetail() {
 
   async function handleExport() {
     try {
+      showToast('Preparing Excel export...', 'info');
       await api.exportExcel(id);
+      showToast('Excel file downloaded successfully!', 'success');
     } catch (err) {
-      alert('Export failed: ' + err.message);
+      showToast('Export failed: ' + err.message, 'error');
     }
   }
 
   async function handleDeleteEvent(eventId) {
-    if (!confirm('Are you sure you want to delete this event?')) return;
+    const approved = await confirm({
+      title: 'Delete Event',
+      message: 'Are you sure you want to delete this event? This will recalculate the bill splits for this month.',
+      confirmText: 'Delete Event',
+      type: 'danger'
+    });
+    if (!approved) return;
+
     try {
       await api.deleteEvent(eventId);
+      showToast('Event deleted and bills recalculated!', 'success');
       loadMonth();
     } catch (err) {
-      alert('Error: ' + err.message);
+      showToast('Error: ' + err.message, 'error');
     }
   }
 
   async function handleDeleteMonth() {
-    if (!confirm(`Are you sure you want to delete this billing month? This will delete all calculations and events for this month. This action cannot be undone.`)) return;
+    const approved = await confirm({
+      title: 'Delete Billing Month',
+      message: 'Are you sure you want to delete this billing month? This will delete all calculations and events for this month. This action cannot be undone.',
+      confirmText: 'Delete Month',
+      type: 'danger'
+    });
+    if (!approved) return;
+
     try {
       await api.deleteMonth(id);
+      showToast('Billing month deleted successfully', 'success');
       navigate('/history');
     } catch (err) {
-      alert('Error deleting month: ' + err.message);
+      showToast('Error deleting month: ' + err.message, 'error');
     }
   }
 

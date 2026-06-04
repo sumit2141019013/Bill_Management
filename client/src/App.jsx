@@ -1,11 +1,14 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, Receipt, History, Zap, LogOut, User } from 'lucide-react';
 import { AuthProvider, useAuth } from './AuthContext';
+import { ToastProvider } from './ToastContext';
+import { ConfirmProvider } from './ConfirmContext';
 import Dashboard from './pages/Dashboard';
 import Tenants from './pages/Tenants';
 import Billing from './pages/Billing';
 import BillHistory from './pages/BillHistory';
 import MonthDetail from './pages/MonthDetail';
+import Profile from './pages/Profile';
 import Login from './pages/Login';
 import './index.css';
 
@@ -74,12 +77,16 @@ function AppContent() {
           </li>
         </ul>
         <div className="navbar-user">
-          <div className="navbar-user-info">
+          <div className="live-sync-indicator" title="Connected to server. Live syncing active.">
+            <span className="pulse-dot"></span>
+            <span className="sync-text">Live Sync</span>
+          </div>
+          <NavLink to="/profile" className="navbar-user-info" style={{ textDecoration: 'none', cursor: 'pointer' }} title="View Profile">
             <div className="navbar-avatar">
               {currentTenant.name.charAt(0).toUpperCase()}
             </div>
             <span className="navbar-username">{currentTenant.name}</span>
-          </div>
+          </NavLink>
           <button className="btn btn-sm btn-secondary navbar-logout" onClick={logout} title="Logout">
             <LogOut size={14} />
           </button>
@@ -91,6 +98,7 @@ function AppContent() {
         <Route path="/billing" element={<Billing />} />
         <Route path="/history" element={<BillHistory />} />
         <Route path="/month/:id" element={<MonthDetail />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
     </Router>
   );
@@ -99,7 +107,11 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <ToastProvider>
+        <ConfirmProvider>
+          <AppContent />
+        </ConfirmProvider>
+      </ToastProvider>
     </AuthProvider>
   );
 }

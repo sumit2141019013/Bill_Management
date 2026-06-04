@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { History, Eye, Download, CalendarDays, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../ToastContext';
+import { useConfirm } from '../ConfirmContext';
 
 export default function BillHistory() {
   const { currentTenant } = useAuth();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
   const [months, setMonths] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -27,9 +31,11 @@ export default function BillHistory() {
 
   async function handleExport(monthId) {
     try {
+      showToast('Preparing Excel export...', 'info');
       await api.exportExcel(monthId);
+      showToast('Excel file downloaded successfully!', 'success');
     } catch (err) {
-      alert('Export failed: ' + err.message);
+      showToast('Export failed: ' + err.message, 'error');
     }
   }
 
@@ -102,12 +108,20 @@ export default function BillHistory() {
                             <button
                               className="btn btn-sm btn-danger"
                               onClick={async () => {
-                                if (!confirm(`Delete billing month ${m.month}?`)) return;
+                                const approved = await confirm({
+                                  title: 'Delete Billing Month',
+                                  message: `Are you sure you want to delete the billing month ${m.month}? This will delete all calculations and events.`,
+                                  confirmText: 'Delete',
+                                  type: 'danger'
+                                });
+                                if (!approved) return;
+
                                 try {
                                   await api.deleteMonth(m.id);
+                                  showToast(`Billing month ${m.month} deleted successfully!`, 'success');
                                   loadMonths();
                                 } catch (e) {
-                                  alert(e.message);
+                                  showToast(e.message, 'error');
                                 }
                               }}
                               title="Delete Month"

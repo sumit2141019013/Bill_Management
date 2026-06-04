@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Edit3, Trash2, UserCheck, UserX, X, Phone, Lock, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Edit3, Trash2, UserCheck, UserX, X, Phone, Lock, Eye, EyeOff, Shield, Clock } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../ToastContext';
+import { useConfirm } from '../ConfirmContext';
 
 export default function Tenants() {
   const { currentTenant, updateTenantInfo } = useAuth();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -52,7 +56,7 @@ export default function Tenants() {
   function openEditModal(tenant) {
     // Only allow editing own profile (unless Admin)
     if (currentTenant && tenant.id !== currentTenant.id && !currentTenant.is_admin) {
-      alert('You can only edit your own profile');
+      showToast('You can only edit your own profile', 'warning');
       return;
     }
     setEditingTenant(tenant);
@@ -69,46 +73,74 @@ export default function Tenants() {
       setError('Name is required');
       return;
     }
+    if (!formData.phone.trim()) {
+      setError('Phone number is required');
+      return;
+    }
+    const cleanPhone = formData.phone.trim().replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      setError('Phone number must be exactly 10 digits');
+      return;
+    }
 
     try {
       if (editingTenant) {
-        const updated = await api.updateTenant(editingTenant.id, { name: formData.name, phone: formData.phone || undefined });
+        const updated = await api.updateTenant(editingTenant.id, { name: formData.name, phone: formData.phone });
         // If editing self, update auth context
         if (currentTenant && editingTenant.id === currentTenant.id) {
           updateTenantInfo({ ...currentTenant, name: updated.name, phone: updated.phone });
         }
+        showToast('Profile updated successfully!', 'success');
       } else {
         await api.createTenant({
           name: formData.name,
           joined_date: formData.joined_date,
-          phone: formData.phone || undefined,
+          phone: formData.phone,
           password: formData.password || undefined
         });
+        showToast('Tenant added successfully!', 'success');
       }
       setShowModal(false);
       loadTenants();
     } catch (err) {
       setError(err.message);
+      showToast(err.message, 'error');
     }
   }
 
   async function handleDelete(tenant) {
-    if (!confirm(`Are you sure you want to delete "${tenant.name}"? This cannot be undone.`)) return;
+    const approved = await confirm({
+      title: 'Delete Tenant',
+      message: `Are you sure you want to delete "${tenant.name}"? This cannot be undone.`,
+      confirmText: 'Delete',
+      type: 'danger'
+    });
+    if (!approved) return;
+
     try {
       await api.deleteTenant(tenant.id);
+      showToast('Tenant deleted successfully', 'success');
       loadTenants();
     } catch (err) {
-      alert('Error: ' + err.message);
+      showToast(err.message, 'error');
     }
   }
 
   async function handleToggleActive(tenant) {
-    if (!confirm(`Are you sure you want to change ${tenant.name}'s status to ${tenant.is_active ? 'OUT' : 'IN'}?\n\nNote: This only changes their general status. If a billing month is currently active, please use the Billing page to log a proper "Tenant Coming In / Going Out" meter reading event instead.`)) return;
+    const approved = await confirm({
+      title: 'Change Tenant Status',
+      message: `Are you sure you want to change ${tenant.name}'s status to ${tenant.is_active ? 'OUT' : 'IN'}?\n\nNote: This only changes their general status. If a billing month is active, please log a meter reading event instead.`,
+      confirmText: 'Change Status',
+      type: 'warning'
+    });
+    if (!approved) return;
+
     try {
       await api.updateTenant(tenant.id, { is_active: !tenant.is_active });
+      showToast('Status updated successfully!', 'success');
       loadTenants();
     } catch (err) {
-      alert('Error: ' + err.message);
+      showToast(err.message, 'error');
     }
   }
 
@@ -133,14 +165,36 @@ export default function Tenants() {
     try {
       await api.changePassword(currentTenant.id, passwordForm.old_password, passwordForm.new_password);
       setPasswordSuccess('Password changed successfully!');
+      showToast('Password changed successfully!', 'success');
       setPasswordForm({ old_password: '', new_password: '', confirm_password: '' });
       setTimeout(() => setShowPasswordModal(false), 1500);
     } catch (err) {
       setPasswordError(err.message);
+      showToast(err.message, 'error');
     }
   }
 
   const isOwnProfile = (tenant) => currentTenant && tenant.id === currentTenant.id;
+
+  // Calculate member-since duration
+  function getMemberDuration(joinedDate) {
+    if (!joinedDate) return '';
+    const joined = new Date(joinedDate);
+    const now = new Date();
+    const diffMs = now - joined;
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (days < 30) return `${days}d`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo`;
+    const years = Math.floor(months / 12);
+    const remainMonths = months % 12;
+    return remainMonths > 0 ? `${years}y ${remainMonths}mo` : `${years}y`;
+  }
+
+  // Check if a phone number is masked (contains asterisks)
+  function isPhoneMasked(phone) {
+    return phone && phone.includes('*');
+  }
 
   const activeTenants = tenants.filter(t => t.is_active && !t.is_admin);
   const inactiveTenants = tenants.filter(t => !t.is_active && !t.is_admin);
@@ -168,6 +222,32 @@ export default function Tenants() {
           </button>
         </div>
       </div>
+
+      {/* Privacy Notice */}
+      {!(currentTenant?.is_admin) && tenants.length > 0 && (
+        <div className="privacy-tooltip">
+          <Shield size={16} className="shield-icon" />
+          <span>Phone numbers of other tenants are masked for privacy. Only your own number is fully visible.</span>
+        </div>
+      )}
+
+      {/* Quick Stats Chips */}
+      {tenants.length > 0 && (
+        <div className="quick-stats-bar">
+          <div className="quick-stat-chip">
+            <span className="chip-dot green"></span>
+            {activeTenants.length} Active
+          </div>
+          <div className="quick-stat-chip">
+            <span className="chip-dot red"></span>
+            {inactiveTenants.length} Inactive
+          </div>
+          <div className="quick-stat-chip">
+            <span className="chip-dot purple"></span>
+            {tenants.filter(t => !t.is_admin).length} Total Members
+          </div>
+        </div>
+      )}
 
       {tenants.length === 0 ? (
         <div className="card">
@@ -198,10 +278,24 @@ export default function Tenants() {
                       {tenant.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="tenant-name">{tenant.name}</div>
-                    <div className="tenant-meta">Joined: {tenant.joined_date}</div>
+                    <div className="tenant-meta">
+                      <Clock size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                      Joined {tenant.joined_date}
+                      <span className="tenant-duration-badge">{getMemberDuration(tenant.joined_date)}</span>
+                    </div>
                     {tenant.phone && (
-                      <div className="tenant-meta" style={{ fontSize: '0.72rem' }}>
-                        📱 {tenant.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                      <div className="tenant-meta tenant-phone-row" style={{ fontSize: '0.72rem' }}>
+                        {isPhoneMasked(tenant.phone) ? (
+                          <>
+                            <Shield size={12} className="phone-masked-icon" />
+                            <span className="phone-masked">{tenant.phone}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Phone size={12} style={{ color: 'var(--success)', marginRight: '4px' }} />
+                            <span>{tenant.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}</span>
+                          </>
+                        )}
                       </div>
                     )}
                     <div className="flex-between mt-1">
@@ -246,10 +340,24 @@ export default function Tenants() {
                       {tenant.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="tenant-name">{tenant.name}</div>
-                    <div className="tenant-meta">Joined: {tenant.joined_date}</div>
+                    <div className="tenant-meta">
+                      <Clock size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                      Joined {tenant.joined_date}
+                      <span className="tenant-duration-badge">{getMemberDuration(tenant.joined_date)}</span>
+                    </div>
                     {tenant.phone && (
-                      <div className="tenant-meta" style={{ fontSize: '0.72rem' }}>
-                        📱 {tenant.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}
+                      <div className="tenant-meta tenant-phone-row" style={{ fontSize: '0.72rem' }}>
+                        {isPhoneMasked(tenant.phone) ? (
+                          <>
+                            <Shield size={12} className="phone-masked-icon" />
+                            <span className="phone-masked">{tenant.phone}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Phone size={12} style={{ color: 'var(--success)', marginRight: '4px' }} />
+                            <span>{tenant.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')}</span>
+                          </>
+                        )}
                       </div>
                     )}
                     <div className="flex-between mt-1">
@@ -309,9 +417,12 @@ export default function Tenants() {
                   <input
                     type="tel"
                     className="form-control"
-                    placeholder="Enter phone number"
+                    placeholder="Enter phone number (10 digits)"
                     value={formData.phone}
                     onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                    required
+                    pattern="[0-9]{10}"
+                    title="Phone number must be exactly 10 digits"
                   />
                 </div>
               )}
@@ -331,9 +442,12 @@ export default function Tenants() {
                     <input
                       type="tel"
                       className="form-control"
-                      placeholder="Enter phone number"
+                      placeholder="Enter phone number (10 digits)"
                       value={formData.phone}
                       onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                      required
+                      pattern="[0-9]{10}"
+                      title="Phone number must be exactly 10 digits"
                     />
                   </div>
                   <div className="form-group">

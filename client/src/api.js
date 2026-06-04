@@ -78,8 +78,14 @@ export const api = {
   // Billing Months
   getMonths: () => request('/billing/months'),
   getMonth: (id) => request(`/billing/months/${id}`),
-  createMonth: (data) => request('/billing/months', { method: 'POST', body: JSON.stringify(data) }),
-  closeMonth: (id, data) => request(`/billing/months/${id}/close`, { method: 'PUT', body: JSON.stringify(data) }),
+  createMonth: (data) => request('/billing/months', { 
+    method: 'POST', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
+  }),
+  closeMonth: (id, data) => request(`/billing/months/${id}/close`, { 
+    method: 'PUT', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
+  }),
   calculateBills: (id) => request(`/billing/months/${id}/calculate`),
   deleteMonth: (id) => request(`/billing/months/${id}`, { method: 'DELETE' }),
 

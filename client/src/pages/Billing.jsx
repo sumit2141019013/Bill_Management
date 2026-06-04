@@ -3,9 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Receipt, Plus, X, UserMinus, UserPlus, Lock, CalendarDays, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
+import { useToast } from '../ToastContext';
+import { useConfirm } from '../ConfirmContext';
 
 export default function Billing() {
   const { currentTenant } = useAuth();
+  const { showToast } = useToast();
+  const confirm = useConfirm();
   const [months, setMonths] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(null);
@@ -17,6 +21,10 @@ export default function Billing() {
   const [error, setError] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [submittingEvent, setSubmittingEvent] = useState(false);
+  const [selectedStartFile, setSelectedStartFile] = useState(null);
+  const [selectedCloseFile, setSelectedCloseFile] = useState(null);
+  const [submittingNewMonth, setSubmittingNewMonth] = useState(false);
+  const [submittingCloseMonth, setSubmittingCloseMonth] = useState(false);
   const navigate = useNavigate();
 
   const [newMonthForm, setNewMonthForm] = useState({
@@ -84,15 +92,25 @@ export default function Billing() {
     }
 
     try {
-      await api.createMonth({
-        month: newMonthForm.month,
-        start_reading: parseFloat(newMonthForm.start_reading),
-        rate_per_unit: parseFloat(newMonthForm.rate_per_unit)
-      });
+      setSubmittingNewMonth(true);
+      const formData = new FormData();
+      formData.append('month', newMonthForm.month);
+      formData.append('start_reading', newMonthForm.start_reading);
+      formData.append('rate_per_unit', newMonthForm.rate_per_unit);
+      if (selectedStartFile) {
+        formData.append('meter_image', selectedStartFile);
+      }
+
+      await api.createMonth(formData);
+      showToast(`Billing month ${newMonthForm.month} started successfully!`, 'success');
       setShowNewMonthModal(false);
+      setSelectedStartFile(null);
       loadData();
     } catch (err) {
       setError(err.message);
+      showToast(err.message, 'error');
+    } finally {
+      setSubmittingNewMonth(false);
     }
   }
 
@@ -119,6 +137,7 @@ export default function Billing() {
       }
 
       await api.createEvent(formData);
+      showToast(`${eventType === 'TENANT_OUT' ? 'Tenant Going Out' : 'Tenant Coming In'} event logged successfully!`, 'success');
 
       setShowEventModal(false);
       setEventForm({ tenant_id: '', meter_reading: '', event_date: new Date().toISOString().split('T')[0], notes: '' });
@@ -126,6 +145,7 @@ export default function Billing() {
       loadData();
     } catch (err) {
       setError(err.message);
+      showToast(err.message, 'error');
     } finally {
       setSubmittingEvent(false);
     }
@@ -141,24 +161,42 @@ export default function Billing() {
     }
 
     try {
-      await api.closeMonth(currentMonth.id, {
-        end_reading: parseFloat(closeForm.end_reading),
-        end_date: closeForm.end_date
-      });
+      setSubmittingCloseMonth(true);
+      const formData = new FormData();
+      formData.append('end_reading', closeForm.end_reading);
+      formData.append('end_date', closeForm.end_date);
+      if (selectedCloseFile) {
+        formData.append('meter_image', selectedCloseFile);
+      }
+
+      await api.closeMonth(currentMonth.id, formData);
+      showToast(`Billing month ${currentMonth.month} closed and splits calculated!`, 'success');
       setShowCloseModal(false);
+      setSelectedCloseFile(null);
       navigate(`/month/${currentMonth.id}`);
     } catch (err) {
       setError(err.message);
+      showToast(err.message, 'error');
+    } finally {
+      setSubmittingCloseMonth(false);
     }
   }
 
   async function handleDeleteMonth() {
-    if (!confirm(`Are you sure you want to delete the billing month "${currentMonth.month}"? This will delete all events, readings, and calculated splits for this month.`)) return;
+    const approved = await confirm({
+      title: 'Delete Billing Month',
+      message: `Are you sure you want to delete the billing month "${currentMonth.month}"? This will delete all events, readings, and calculated splits for this month.`,
+      confirmText: 'Delete Month',
+      type: 'danger'
+    });
+    if (!approved) return;
+
     try {
       await api.deleteMonth(currentMonth.id);
+      showToast(`Billing month ${currentMonth.month} deleted successfully.`, 'success');
       loadData();
     } catch (err) {
-      alert('Error deleting month: ' + err.message);
+      showToast('Error deleting month: ' + err.message, 'error');
     }
   }
 
@@ -205,7 +243,7 @@ export default function Billing() {
           <p>Manage current month's electricity billing</p>
         </div>
         {!currentMonth && (
-          <button className="btn btn-primary" onClick={() => { setError(''); setShowNewMonthModal(true); }}>
+          <button className="btn btn-primary" onClick={() => { setError(''); setSelectedStartFile(null); setShowNewMonthModal(true); }}>
             <Plus size={16} /> Start New Month
           </button>
         )}
@@ -217,7 +255,7 @@ export default function Billing() {
             <CalendarDays size={48} className="empty-icon" />
             <h3>No Active Billing Month</h3>
             <p>Start a new billing month by entering the current meter reading</p>
-            <button className="btn btn-primary mt-2" onClick={() => { setError(''); setShowNewMonthModal(true); }}>
+            <button className="btn btn-primary mt-2" onClick={() => { setError(''); setSelectedStartFile(null); setShowNewMonthModal(true); }}>
               <Plus size={16} /> Start New Month
             </button>
           </div>
@@ -260,7 +298,7 @@ export default function Billing() {
               <button className="btn btn-success" onClick={() => openEventModal('TENANT_IN')} disabled={!currentTenant?.is_admin && isCurrentTenantPresent}>
                 <UserPlus size={16} /> Tenant Coming In
               </button>
-              <button className="btn btn-warning" onClick={() => { setError(''); setCloseForm({ end_reading: '', end_date: new Date().toISOString().split('T')[0] }); setShowCloseModal(true); }}>
+              <button className="btn btn-warning" onClick={() => { setError(''); setSelectedCloseFile(null); setCloseForm({ end_reading: '', end_date: new Date().toISOString().split('T')[0] }); setShowCloseModal(true); }}>
                 <Lock size={16} /> Close Month
               </button>
               {currentTenant?.is_admin && (
@@ -419,7 +457,7 @@ export default function Billing() {
           <div className="modal slide-up" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Start New Billing Month</h3>
-              <button className="btn btn-icon btn-secondary" onClick={() => setShowNewMonthModal(false)}>
+              <button className="btn btn-icon btn-secondary" onClick={() => setShowNewMonthModal(false)} disabled={submittingNewMonth}>
                 <X size={16} />
               </button>
             </div>
@@ -431,6 +469,7 @@ export default function Billing() {
                   className="form-control"
                   value={newMonthForm.month}
                   onChange={e => setNewMonthForm({ ...newMonthForm, month: e.target.value })}
+                  disabled={submittingNewMonth}
                 />
               </div>
               <div className="form-group">
@@ -442,6 +481,7 @@ export default function Billing() {
                   placeholder="Enter current meter reading"
                   value={newMonthForm.start_reading}
                   onChange={e => setNewMonthForm({ ...newMonthForm, start_reading: e.target.value })}
+                  disabled={submittingNewMonth}
                   autoFocus
                 />
               </div>
@@ -454,12 +494,30 @@ export default function Billing() {
                   placeholder="10"
                   value={newMonthForm.rate_per_unit}
                   onChange={e => setNewMonthForm({ ...newMonthForm, rate_per_unit: e.target.value })}
+                  disabled={submittingNewMonth}
+                />
+              </div>
+              <div className="form-group">
+                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="form-control"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setSelectedStartFile(e.target.files[0]);
+                    }
+                  }}
+                  disabled={submittingNewMonth}
                 />
               </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowNewMonthModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Start Month</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowNewMonthModal(false)} disabled={submittingNewMonth}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={submittingNewMonth}>
+                  {submittingNewMonth ? 'Verifying & Starting...' : 'Start Month'}
+                </button>
               </div>
             </form>
           </div>
@@ -563,7 +621,7 @@ export default function Billing() {
           <div className="modal slide-up" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>🔒 Close Billing Month</h3>
-              <button className="btn btn-icon btn-secondary" onClick={() => setShowCloseModal(false)}>
+              <button className="btn btn-icon btn-secondary" onClick={() => setShowCloseModal(false)} disabled={submittingCloseMonth}>
                 <X size={16} />
               </button>
             </div>
@@ -580,6 +638,7 @@ export default function Billing() {
                   placeholder="Enter final meter reading"
                   value={closeForm.end_reading}
                   onChange={e => setCloseForm({ ...closeForm, end_reading: e.target.value })}
+                  disabled={submittingCloseMonth}
                   autoFocus
                 />
               </div>
@@ -590,13 +649,33 @@ export default function Billing() {
                   className="form-control"
                   value={closeForm.end_date}
                   onChange={e => setCloseForm({ ...closeForm, end_date: e.target.value })}
+                  disabled={submittingCloseMonth}
+                />
+              </div>
+              <div className="form-group">
+                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="form-control"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setSelectedCloseFile(e.target.files[0]);
+                    }
+                  }}
+                  disabled={submittingCloseMonth}
                 />
               </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
               <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCloseModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-warning">
-                  <Lock size={16} /> Close & Finalize
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCloseModal(false)} disabled={submittingCloseMonth}>Cancel</button>
+                <button type="submit" className="btn btn-warning" disabled={submittingCloseMonth}>
+                  {submittingCloseMonth ? 'Verifying & Finalizing...' : (
+                    <>
+                      <Lock size={16} /> Close & Finalize
+                    </>
+                  )}
                 </button>
               </div>
             </form>

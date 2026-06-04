@@ -115,7 +115,7 @@ function verifyReading(userReading, aiReading) {
 
   // Check if they are reasonably close or identical.
   const difference = Math.abs(userReading - aiReading);
-  const isClose = difference < 0.5; // only allow tiny floating point differences
+  const isClose = difference < 0.1; // only allow tiny floating point differences
 
   if (isClose) {
     return { verified: true, warning: null };

@@ -41,18 +41,22 @@ router.post('/register', async (req, res) => {
     if (!name || !password) {
       return res.status(400).json({ error: 'Name and password are required' });
     }
+    if (!phone) {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      return res.status(400).json({ error: 'Phone number must be exactly 10 digits' });
+    }
     if (password.length < 4) {
       return res.status(400).json({ error: 'Password must be at least 4 characters' });
     }
 
     // Check if name or phone already exists
-    let existingQuery = 'SELECT id FROM tenants WHERE LOWER(name) = LOWER($1)';
-    let existingParams = [name];
-    if (phone) {
-      existingQuery += ' OR phone = $2';
-      existingParams.push(phone);
-    }
-    const existing = await query(existingQuery, existingParams);
+    const existing = await query(
+      'SELECT id FROM tenants WHERE LOWER(name) = LOWER($1) OR phone = $2',
+      [name, cleanPhone]
+    );
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'A tenant with this name or phone already exists' });
     }
@@ -60,14 +64,13 @@ router.post('/register', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const insertResult = await query(
       'INSERT INTO tenants (name, phone, password, is_active, is_admin, joined_date) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, phone, is_active, joined_date, is_admin',
-      [name, phone || null, password, 1, is_admin ? 1 : 0, today]
+      [name, cleanPhone, password, 1, is_admin ? 1 : 0, today]
     );
     res.json({ tenant: insertResult.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
-// duplicate register endpoint removed
 
 // POST /api/auth/setup — set phone + password for a tenant who doesn't have credentials yet
 router.post('/setup', async (req, res) => {
