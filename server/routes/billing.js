@@ -82,17 +82,29 @@ router.post('/months', upload.single('meter_image'), async (req, res) => {
       return res.status(400).json({ error: 'Billing month already exists' });
     }
 
+    if (!req.file) {
+      return res.status(400).json({ error: 'Meter image/photo is required' });
+    }
+
     let meter_image_url = null;
     let ai_meter_reading = null;
 
-    if (req.file) {
-      try {
-        // 1. Upload the image to Cloudinary (or local fallback)
-        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+    try {
+      // 1. Upload the image to Cloudinary (or local fallback)
+      meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
 
-        // 2. Extract reading via Gemini and BLOCK if mismatch
-        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+      // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
+      const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+      if (ocrResult) {
+        if (ocrResult.bypass) {
+          console.log('Gemini OCR bypassed:', ocrResult.reason);
+        } else if (ocrResult.error) {
+          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
+        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+          return res.status(400).json({
+            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+          });
+        } else {
           ai_meter_reading = ocrResult.reading;
           const verification = verifyReading(start_reading, ocrResult.reading);
           if (!verification.verified) {
@@ -103,10 +115,10 @@ router.post('/months', upload.single('meter_image'), async (req, res) => {
             });
           }
         }
-      } catch (err) {
-        console.error('Error processing image/OCR:', err.message);
-        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
       }
+    } catch (err) {
+      console.error('Error processing image/OCR:', err.message);
+      return res.status(400).json({ error: `Image processing or AI verification failed: ${err.message}` });
     }
 
     const rate = rate_per_unit || 10;
@@ -184,17 +196,29 @@ router.post('/events', upload.single('meter_image'), async (req, res) => {
       }
     }
 
+    if (!req.file) {
+      return res.status(400).json({ error: 'Meter image/photo is required' });
+    }
+
     let meter_image_url = null;
     let ai_meter_reading = null;
 
-    if (req.file) {
-      try {
-        // 1. Upload the image to Cloudinary (or local fallback)
-        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+    try {
+      // 1. Upload the image to Cloudinary (or local fallback)
+      meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
 
-        // 2. Extract reading via Gemini and BLOCK if mismatch
-        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+      // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
+      const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+      if (ocrResult) {
+        if (ocrResult.bypass) {
+          console.log('Gemini OCR bypassed:', ocrResult.reason);
+        } else if (ocrResult.error) {
+          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
+        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+          return res.status(400).json({
+            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+          });
+        } else {
           ai_meter_reading = ocrResult.reading;
           const verification = verifyReading(meter_reading, ocrResult.reading);
           if (!verification.verified) {
@@ -205,10 +229,10 @@ router.post('/events', upload.single('meter_image'), async (req, res) => {
             });
           }
         }
-      } catch (err) {
-        console.error('Error processing image/OCR:', err.message);
-        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
       }
+    } catch (err) {
+      console.error('Error processing image/OCR:', err.message);
+      return res.status(400).json({ error: `Image processing or AI verification failed: ${err.message}` });
     }
 
     // Record the event
@@ -266,17 +290,29 @@ router.put('/months/:id/close', upload.single('meter_image'), async (req, res) =
     const month = monthResult.rows[0];
     if (month.is_closed) return res.status(400).json({ error: 'Month is already closed' });
 
+    if (!req.file) {
+      return res.status(400).json({ error: 'Meter image/photo is required' });
+    }
+
     let meter_image_url = null;
     let ai_meter_reading = null;
 
-    if (req.file) {
-      try {
-        // 1. Upload the image to Cloudinary (or local fallback)
-        meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
+    try {
+      // 1. Upload the image to Cloudinary (or local fallback)
+      meter_image_url = await uploadImage(req.file.buffer, req.file.originalname, req.file.mimetype, req);
 
-        // 2. Extract reading via Gemini and BLOCK if mismatch
-        const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
-        if (ocrResult && ocrResult.reading !== undefined && ocrResult.reading !== null) {
+      // 2. Extract reading via Gemini and BLOCK if mismatch or unreadable
+      const ocrResult = await extractMeterReading(req.file.buffer, req.file.mimetype);
+      if (ocrResult) {
+        if (ocrResult.bypass) {
+          console.log('Gemini OCR bypassed:', ocrResult.reason);
+        } else if (ocrResult.error) {
+          return res.status(400).json({ error: `AI verification failed: ${ocrResult.error}` });
+        } else if (ocrResult.reading === null || ocrResult.reading === undefined) {
+          return res.status(400).json({
+            error: 'AI could not read the meter display clearly. Please ensure the photo is clear, well-lit, and shows the meter screen clearly.'
+          });
+        } else {
           ai_meter_reading = ocrResult.reading;
           const verification = verifyReading(end_reading, ocrResult.reading);
           if (!verification.verified) {
@@ -287,10 +323,10 @@ router.put('/months/:id/close', upload.single('meter_image'), async (req, res) =
             });
           }
         }
-      } catch (err) {
-        console.error('Error processing image/OCR:', err.message);
-        // If OCR service itself errors out, allow the event to proceed (graceful degradation)
       }
+    } catch (err) {
+      console.error('Error processing image/OCR:', err.message);
+      return res.status(400).json({ error: `Image processing or AI verification failed: ${err.message}` });
     }
 
     // Record MONTH_END event

@@ -90,6 +90,10 @@ export default function Billing() {
       setError('Start reading is required');
       return;
     }
+    if (!selectedStartFile) {
+      setError('Meter photo is required');
+      return;
+    }
 
     try {
       setSubmittingNewMonth(true);
@@ -97,9 +101,7 @@ export default function Billing() {
       formData.append('month', newMonthForm.month);
       formData.append('start_reading', newMonthForm.start_reading);
       formData.append('rate_per_unit', newMonthForm.rate_per_unit);
-      if (selectedStartFile) {
-        formData.append('meter_image', selectedStartFile);
-      }
+      formData.append('meter_image', selectedStartFile);
 
       await api.createMonth(formData);
       showToast(`Billing month ${newMonthForm.month} started successfully!`, 'success');
@@ -122,6 +124,10 @@ export default function Billing() {
       setError('Tenant and meter reading are required');
       return;
     }
+    if (!selectedFile) {
+      setError('Meter photo is required');
+      return;
+    }
 
     try {
       setSubmittingEvent(true);
@@ -132,9 +138,7 @@ export default function Billing() {
       formData.append('meter_reading', eventForm.meter_reading);
       formData.append('event_date', eventForm.event_date);
       formData.append('notes', eventForm.notes);
-      if (selectedFile) {
-        formData.append('meter_image', selectedFile);
-      }
+      formData.append('meter_image', selectedFile);
 
       await api.createEvent(formData);
       showToast(`${eventType === 'TENANT_OUT' ? 'Tenant Going Out' : 'Tenant Coming In'} event logged successfully!`, 'success');
@@ -159,15 +163,17 @@ export default function Billing() {
       setError('End reading is required');
       return;
     }
+    if (!selectedCloseFile) {
+      setError('Meter photo is required');
+      return;
+    }
 
     try {
       setSubmittingCloseMonth(true);
       const formData = new FormData();
       formData.append('end_reading', closeForm.end_reading);
       formData.append('end_date', closeForm.end_date);
-      if (selectedCloseFile) {
-        formData.append('meter_image', selectedCloseFile);
-      }
+      formData.append('meter_image', selectedCloseFile);
 
       await api.closeMonth(currentMonth.id, formData);
       showToast(`Billing month ${currentMonth.month} closed and splits calculated!`, 'success');
@@ -498,7 +504,7 @@ export default function Billing() {
                 />
               </div>
               <div className="form-group">
-                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <label>Meter Photo (Required, AI verifies reading)</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -510,6 +516,7 @@ export default function Billing() {
                     }
                   }}
                   disabled={submittingNewMonth}
+                  required
                 />
               </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
@@ -589,7 +596,7 @@ export default function Billing() {
                 />
               </div>
               <div className="form-group">
-                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <label>Meter Photo (Required, AI verifies reading)</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -601,6 +608,7 @@ export default function Billing() {
                     }
                   }}
                   disabled={submittingEvent}
+                  required
                 />
               </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
@@ -653,7 +661,7 @@ export default function Billing() {
                 />
               </div>
               <div className="form-group">
-                <label>Meter Photo (Optional, AI verifies reading)</label>
+                <label>Meter Photo (Required, AI verifies reading)</label>
                 <input
                   type="file"
                   accept="image/*"
@@ -665,6 +673,7 @@ export default function Billing() {
                     }
                   }}
                   disabled={submittingCloseMonth}
+                  required
                 />
               </div>
               {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: '1rem' }}>{error}</p>}
