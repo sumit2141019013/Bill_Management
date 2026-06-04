@@ -204,7 +204,6 @@ export default function Tenants() {
       <div className="page-header flex-between">
         <div>
           <h2>👥 Tenants</h2>
-          <p>Manage the tenants in your room</p>
         </div>
         <div className="flex gap-1">
           <button className="btn btn-secondary" onClick={() => {

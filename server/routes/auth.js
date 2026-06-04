@@ -12,12 +12,12 @@ router.post('/login', async (req, res) => {
 
     // Try to find by name (case-insensitive) or by phone
     const result = await query(
-      'SELECT id, name, phone, is_active, joined_date, is_admin FROM tenants WHERE LOWER(name) = LOWER($1) OR phone = $2', 
+      'SELECT id, name, phone, is_active, joined_date, is_admin FROM tenants WHERE LOWER(name) = LOWER($1) OR phone = $2',
       [name, name]
     );
-    
+
     let tenant = result.rows[0];
-    
+
     if (!tenant) {
       return res.status(401).json({ error: 'No account found with this name or phone' });
     }
