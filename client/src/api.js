@@ -8,7 +8,7 @@ function getTenantId() {
       const tenant = JSON.parse(saved);
       return tenant.id;
     }
-  } catch (e) { }
+  } catch (e) {}
   return null;
 }
 
@@ -63,8 +63,7 @@ async function request(url, options = {}) {
 export const api = {
   // Auth
   login: (name, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
-  sendOTP: (phone, name) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ phone, name }) }),
-  register: (name, phone, password, otp, isAdmin = false) => request('/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, password, otp, is_admin: isAdmin }) }),
+  register: (name, phone, password, isAdmin = false) => request('/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, password, is_admin: isAdmin }) }),
   setupCredentials: (tenant_id, phone, password) => request('/auth/setup', { method: 'POST', body: JSON.stringify({ tenant_id, phone, password }) }),
   getMe: (id) => request(`/auth/me/${id}`),
   changePassword: (tenant_id, old_password, new_password) => request('/auth/change-password', { method: 'PUT', body: JSON.stringify({ tenant_id, old_password, new_password }) }),
@@ -79,21 +78,21 @@ export const api = {
   // Billing Months
   getMonths: () => request('/billing/months'),
   getMonth: (id) => request(`/billing/months/${id}`),
-  createMonth: (data) => request('/billing/months', {
-    method: 'POST',
-    body: data instanceof FormData ? data : JSON.stringify(data)
+  createMonth: (data) => request('/billing/months', { 
+    method: 'POST', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
   }),
-  closeMonth: (id, data) => request(`/billing/months/${id}/close`, {
-    method: 'PUT',
-    body: data instanceof FormData ? data : JSON.stringify(data)
+  closeMonth: (id, data) => request(`/billing/months/${id}/close`, { 
+    method: 'PUT', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
   }),
   calculateBills: (id) => request(`/billing/months/${id}/calculate`),
   deleteMonth: (id) => request(`/billing/months/${id}`, { method: 'DELETE' }),
 
   // Events
-  createEvent: (data) => request('/billing/events', {
-    method: 'POST',
-    body: data instanceof FormData ? data : JSON.stringify(data)
+  createEvent: (data) => request('/billing/events', { 
+    method: 'POST', 
+    body: data instanceof FormData ? data : JSON.stringify(data) 
   }),
   deleteEvent: (id) => request(`/billing/events/${id}`, { method: 'DELETE' }),
 
