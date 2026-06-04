@@ -480,7 +480,7 @@ export default function Tenants() {
         <div className="modal-overlay" onClick={() => setShowPasswordModal(false)}>
           <div className="modal slide-up" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>🔐 Change Password</h3>
+              <h3>🔐Reset Password</h3>
               <button className="btn btn-icon btn-secondary" onClick={() => setShowPasswordModal(false)}>
                 <X size={16} />
               </button>

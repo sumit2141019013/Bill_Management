@@ -63,7 +63,8 @@ async function request(url, options = {}) {
 export const api = {
   // Auth
   login: (name, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ name, password }) }),
-  register: (name, phone, password, isAdmin = false) => request('/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, password, is_admin: isAdmin }) }),
+  sendOTP: (phone, name) => request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ phone, name }) }),
+  register: (name, phone, password, otp, isAdmin = false) => request('/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, password, otp, is_admin: isAdmin }) }),
   setupCredentials: (tenant_id, phone, password) => request('/auth/setup', { method: 'POST', body: JSON.stringify({ tenant_id, phone, password }) }),
   getMe: (id) => request(`/auth/me/${id}`),
   changePassword: (tenant_id, old_password, new_password) => request('/auth/change-password', { method: 'PUT', body: JSON.stringify({ tenant_id, old_password, new_password }) }),
