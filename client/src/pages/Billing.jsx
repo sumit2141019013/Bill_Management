@@ -508,7 +508,6 @@ export default function Billing() {
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="form-control"
                   onChange={e => {
                     if (e.target.files && e.target.files[0]) {
@@ -600,7 +599,6 @@ export default function Billing() {
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="form-control"
                   onChange={e => {
                     if (e.target.files && e.target.files[0]) {
@@ -665,7 +663,6 @@ export default function Billing() {
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="form-control"
                   onChange={e => {
                     if (e.target.files && e.target.files[0]) {
